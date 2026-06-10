@@ -212,7 +212,7 @@ void kmain(unsigned long magic, unsigned long addr) {
     asm volatile("sti");
     
     // 7. Higher-level systems
-    fwcInit();  // FWC Forth VM
+    bmfInit();  // FWC Forth VM
 }
 ```
 

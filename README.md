@@ -204,6 +204,6 @@ For **bare metal builds**, see [BARE_METAL.md](BARE_METAL.md).
 For **hosted mode** (Linux/Windows), modify `system.c` to provide the I/O primitives. The VM core files `fwc-vm.c/h` are portable and require only standard C library functions.
 #include "fwc-vm.h"
 // ... implement the functions fwc-vm.c needs
-fwcInit();
+bmfInit();
 outer(".\" Hello World!\"");
 ```

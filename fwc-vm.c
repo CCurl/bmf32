@@ -66,7 +66,6 @@
 	X(MOVE,   "cmove",    t = pop(); n = pop(); memmove((void*)n, (void*)pop(), t); ) \
 	X(BRD,    "read",     t = pop(); n = pop(); readBlock((uint32_t)t, (unsigned char*)n); ) \
 	X(BWT,    "write",    t = pop(); n = pop(); writeBlock((uint32_t)t, (unsigned char*)n); ) \
-	X(DOT,    "(.)",      dot(pop()); ) \
 	X(LASTOP, "s-len",    TOS = strlen((char*)TOS); )
 
 enum { PRIMS(X1) };
@@ -98,25 +97,10 @@ void compileErr(char* w) { zType("\n-word:["); zType(w); zType("]?-\n"); }
 
 int nextWord() {
 	int ln = 0;
-	while (*toIn && (*toIn < 33)) { if (btwi(*toIn,1,2)) { state=(*toIn-1); } ++toIn; }
-	while (*toIn > 32) { wd[ln++] = *(toIn++); }
+	while (*toIn && (!btwi(*toIn,33,126))) { if (btwi(*toIn,1,2)) { state=(*toIn-1); } ++toIn; }
+	while (btwi(*toIn,33,126)) { wd[ln++] = *(toIn++); }
 	wd[ln] = 0;
 	return ln;
-}
-
-void dot(cell n) {
-	char buf[33], *p = &buf[32];
-	int isNeg = (n < 0) && (base == 10) ? 1 : 0;
-	ucell un = isNeg ? -n : n;
-	*p = 0;
-	do {
-		char c = (un % base) + '0';
-		if (c > '9') { c += 7; }
-		*(--p) = c;
-		un /= base;
-	} while (un);
-	if (isNeg) { *(--p) = '-'; }
-	zType(p);
 }
 
 int isNum(const char *w, cell b) {
@@ -189,9 +173,14 @@ void outer(const char *src) {
 	toIn = svIn;
 }
 
-void fwcInit() {
-	base = 10;
+void bmfInit() {
+	dsp = rsp = lsp = tsp = 0;
+	here = LASTOP+1;
 	last = (ucell)&mem[MEM_SZ];
+	base = 10;
+	state = INTERPRET;
+	code = (ucell*)&mem[0];
+	toIn = (char*)"";
 	NVP_T prims[] = { PRIMS(X3) { 0, 0 } };
 	NVP_T nv[] = {
 		{ "version", VERSION },

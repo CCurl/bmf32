@@ -52,7 +52,7 @@ FWC Bare Metal v1.0
    - Enable interrupts with STI
 
 3. **FWC VM Initialization**:
-   - `fwcInit()` - Setup primitives, stacks, dictionary
+   - `bmfInit()` - Setup primitives, stacks, dictionary
    - Load bootstrap (currently minimal, ready for fwc-boot.fth)
    - Enter REPL loop
 

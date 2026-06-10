@@ -2,13 +2,12 @@
 
 #ifndef __BMF_H__
 
-#define VERSION         20260512
-#define BOOT_FN         "fwc-boot.fth"
+#define VERSION         20260609
 
 // Bare metal 32-bit build for QEMU
 #define strEqI(s, d)  (strcasecmp(s, d) == 0)
 #define BIN_DIR ""
-#define MEM_SZ         0x3000000
+#define MEM_SZ         0x01000000
 
 #include <stdint.h>
 #include <string.h>
@@ -39,7 +38,7 @@ typedef struct { char *name; ucell value; } NVP_T;
 extern void inner(ucell start);
 extern void outer(const char *src);
 extern void addLit(const char *name, cell val);
-extern void fwcInit();
+extern void bmfInit();
 extern int nextWord();
 extern DE_T *addToDict(char *w);
 extern cell state;
@@ -52,7 +51,7 @@ extern void emit(const char ch);
 extern int  key();
 extern int  qKey();
 extern cell timer();
-extern void boot();
+extern void bmfBoot();
 extern void ms(cell sleepForMS);
 extern void readBlock(ucell lba, unsigned char *buf);
 extern void writeBlock(ucell lba, unsigned char *buf);

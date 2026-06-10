@@ -1,6 +1,6 @@
 #include "fwc-vm.h"
 
-void boot(void *f) {
+void bmfBoot() {
     outer("( these are created later as -last- and -here- )");
     outer("( they are used later for rebooting )");
     outer("(h) @   (l) @");

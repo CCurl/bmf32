@@ -63,7 +63,7 @@
   - No changes needed, 32-bit compatible
   - Integrated with bare metal HAL
   - 64 primitives available
-  - Forth VM initialization via fwcInit()
+  - Forth VM initialization via bmfInit()
 
 #### Build System
 - ✅ `makefile`

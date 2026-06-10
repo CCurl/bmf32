@@ -116,7 +116,7 @@ void repl(void) {
 // ===== MAIN KERNEL ENTRY POINT =====
 // Called from boot.asm
 
-extern void fwcInit(void);
+extern void bmfInit(void);
 
 void kmain(unsigned long magic, unsigned long addr) {
     // Initialize hardware
@@ -144,11 +144,11 @@ void kmain(unsigned long magic, unsigned long addr) {
     serial_write_string("ATA/IDE initialized\n");
     
     // Initialize FWC VM
-    fwcInit();
+    bmfInit();
     serial_write_string("FWC VM initialized\n");
     
     // Boot Forth system
-    boot();
+    bmfBoot();
     
     // Main REPL loop
     zType("BMF - Bare Metal Forth - v0.1\n");

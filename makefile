@@ -4,7 +4,7 @@ BITS ?= 64
 all: kernel.elf
 
 clean:
-	rm -f *.o *.o kernel.elf kernel.o fwc-vm.o
+	rm -f *.o kernel.elf
 
 # Bare metal 32-bit kernel for QEMU
 CROSS_CC ?= gcc

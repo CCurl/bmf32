@@ -1,0 +1,201 @@
+// A Tachyon inspired system, MIT license, (c) 2026 Chris Curl
+#include "bmf-vm.h"
+
+#define X1(op, name, theCode) op,
+#define X2(op, name, theCode) case op: theCode goto next;
+#define X3(op, name, theCode) { name, op },
+
+#define PRIMS(X) \
+	X(EXIT,   "exit",     pc = (ucell)rpop(); if (pc==0) { return; } ) \
+	X(LIT,    "",         push(code[pc++]); ) \
+	X(JMP,    "",         pc = code[pc]; ) \
+	X(JMPZ,   "",         if (pop()==0) { pc = code[pc]; } else { pc++; } ) \
+	X(JMPNZ,  "",         if (pop()) { pc = code[pc]; } else { pc++; } ) \
+	X(NJMPZ,  "",         if (TOS==0) { pc = code[pc]; } else { pc++; } ) \
+	X(NJMPNZ, "",         if (TOS) { pc = code[pc]; } else { pc++; } ) \
+	X(DUP,    "dup",      push(TOS); ) \
+	X(DROP,   "drop",     pop(); ) \
+	X(SWAP,   "swap",     t = TOS; TOS = NOS; NOS = t; ) \
+	X(OVER,   "over",     push(NOS); ) \
+	X(STO,    "!",        t = pop(); n = pop(); *(cell*)t = n; ) \
+	X(FET,    "@",        TOS = *(cell*)TOS; ) \
+	X(CSTO,   "c!",       t = pop(); n = pop(); *(byte*)t = (byte)n; ) \
+	X(CFET,   "c@",       TOS = *(byte*)TOS; ) \
+	X(RTO,    ">r",       rpush(pop()); ) \
+	X(RAT,    "r@",       push(rstk[rsp]); ) \
+	X(RFROM,  "r>",       push(rpop()); ) \
+	X(TSPI,   "+L",       if (tsp < (STK_SZ-3)) { tsp += 3; } ) \
+	X(TSPD,   "-L",       if (2 < tsp) { tsp -= 3; } ) \
+	X(XSTO,   "x!",       tstk[tsp] = pop(); ) \
+	X(YSTO,   "y!",       tstk[tsp+1] = pop(); ) \
+	X(ZSTO,   "z!",       tstk[tsp+2] = pop(); ) \
+	X(XFET,   "x@",       push(tstk[tsp]); ) \
+	X(YFET,   "y@",       push(tstk[tsp+1]); ) \
+	X(ZFET,   "z@",       push(tstk[tsp+2]); ) \
+	X(XFETI,  "x@+",      push(tstk[tsp]++); ) \
+	X(YFETI,  "y@+",      push(tstk[tsp+1]++); ) \
+	X(ZFETI,  "z@+",      push(tstk[tsp+2]++); ) \
+	X(MULT,   "*",        t = pop(); TOS *= t; ) \
+	X(ADD,    "+",        t = pop(); TOS += t; ) \
+	X(SUB,    "-",        t = pop(); TOS -= t; ) \
+	X(SLMOD,  "/mod",     t = TOS; n = NOS; TOS = n/t; NOS = n%t; ) \
+	X(INC,    "1+",       TOS += 1; ) \
+	X(DEC,    "1-",       TOS -= 1; ) \
+	X(LT,     "<",        t = pop(); TOS = (TOS  < t) ? 1 : 0; ) \
+	X(EQ,     "=",        t = pop(); TOS = (TOS == t) ? 1 : 0; ) \
+	X(GT,     ">",        t = pop(); TOS = (TOS  > t) ? 1 : 0; ) \
+	X(EQ0,    "0=",       TOS = (TOS == 0) ? 1 : 0; ) \
+	X(MIN,    "min",      t = pop(); TOS = (TOS < t) ? TOS : t; ) \
+	X(MAX,    "max",      t = pop(); TOS = (TOS > t) ? TOS : t; ) \
+	X(PLSTO,  "+!",       t = pop(); n = pop(); *(cell *)t += n; ) \
+	X(FOR,    "for",      lsp += 3; L0 = 0; L1 = pop(); L2 = pc; ) \
+	X(I,      "i",        push(L0); ) \
+	X(NEXT,   "next",     if (++L0 < L1) { pc=(ucell)L2; } else { lsp = (2<lsp) ? lsp-3 : 0; } ) \
+	X(AND ,   "and",      t = pop(); TOS &= t; ) \
+	X(OR,     "or",       t = pop(); TOS |= t; ) \
+	X(XOR,    "xor",      t = pop(); TOS ^= t; ) \
+	X(ZTYPE,  "ztype",    zType((const char*)pop()); ) \
+	X(FIND,   "find",     push((cell)findInDict((char *)0)); ) \
+	X(KEY,    "key",      push(key()); ) \
+	X(QKEY,   "key?",     push(qKey()); ) \
+	X(EMIT,   "emit",     emit((char)pop()); ) \
+	X(MS,     "ms",       ms(pop()); ) \
+	X(TIMER,  "timer",    push(timer()); ) \
+	X(ADDW,   "add-word", addToDict(0); ) \
+	X(OUTER,  "outer",    t = pop(); outer((char*)t); ) \
+	X(MOVE,   "cmove",    t = pop(); n = pop(); memmove((void*)n, (void*)pop(), t); ) \
+	X(BRD,    "read",     t = pop(); n = pop(); readBlock((uint32_t)n, (unsigned char*)t); ) \
+	X(BWT,    "write",    t = pop(); n = pop(); writeBlock((uint32_t)n, (unsigned char*)t); ) \
+	X(LASTOP, "s-len",    TOS = strlen((char*)TOS); )
+
+enum { PRIMS(X1) };
+
+char mem[MEM_SZ], *toIn, wd[32];
+ucell *code=(ucell*)&mem[0], dsp, rsp, lsp, tsp, last;
+cell dstk[STK_SZ+1], rstk[STK_SZ+1], lstk[STK_SZ+1], tstk[STK_SZ+1];
+cell here=LASTOP+1, base=10, state=INTERPRET;
+DE_T tmpWords[10];
+
+void push(cell v) { if (dsp < STK_SZ) { dstk[++dsp] = v; } }
+cell pop() { return (0 < dsp) ? dstk[dsp--] : 0; }
+void rpush(cell v) { if (rsp < STK_SZ) { rstk[++rsp] = v; } }
+cell rpop() { return (0 < rsp) ? rstk[rsp--] : 0; }
+void comma(ucell val) { code[here++] = val; }
+void lit1(cell n) {	comma((ucell)n | LIT_MASK); }
+void lit2(cell n) {	comma(LIT); comma(n); }
+void compileNum(cell n) { btwi(n,0,LIT_BITS) ? lit1(n) : lit2(n); }
+void doNum() { if (state == COMPILE) { compileNum(pop()); } }
+void doComment() { while (nextWord() && !strEqI(wd, ")")) {} }
+void doLineComment() { while ( *toIn && (*toIn != 10) ) { ++toIn; } }
+void doInline(ucell xt) { while (code[xt] != EXIT) { comma(code[xt++]); } }
+void doInterp(ucell xt) { code[10]=xt; code[11]=EXIT; inner(10); }
+int  isTmpW(const char *w) { return (w[0]=='t') && btwi(w[1],'0','9') && (w[2]==0) ? 1 : 0; }
+void addPrim(const char *nm, ucell op) { DE_T *dp = addToDict((char*)nm); if (dp) { dp->xt = op; } }
+void addLit(const char *name, cell val) { addToDict((char*)name); compileNum(val); comma(EXIT); }
+char *checkWord(char *w) { return w ? w : (nextWord() ? &wd[0] : NULL); }
+void compileErr(char* w) { zType("\n-word:["); zType(w); zType("]?-\n"); }
+
+int nextWord() {
+	int ln = 0;
+	while (*toIn && (!btwi(*toIn,33,126))) { if (btwi(*toIn,1,2)) { state=(*toIn-1); } ++toIn; }
+	while (btwi(*toIn,33,126)) { wd[ln++] = *(toIn++); }
+	wd[ln] = 0;
+	return ln;
+}
+
+int isNum(const char *w, cell b) {
+	cell n = 0, isNeg = 0;
+	if ((w[0] == 39) && (w[2] == 39) && (w[3] == 0)) { push(w[1]); return 1; }
+	if (w[0] == '%') { b = 2; ++w; }
+	if (w[0] == '#') { b = 10; ++w; }
+	if (w[0] == '$') { b = 16; ++w; }
+	if ((b == 10) && (w[0] == '-')) { isNeg = 1; ++w; }
+	if (w[0] == 0) { return 0; }
+	while (*w) {
+		char c = *w++; if (c >= 'A' && c <= 'Z') { c += 32; }
+		int val = btwi(c,'0','9') ? c-'0' : btwi(c,'a','z') ? c-'a'+10 : -1;
+		if (btwi(val, 0, b-1)) { n=(n*b)+val; } else { return 0; }
+	}
+	push(isNeg ? -n : n);
+	return 1;
+}
+
+DE_T *addToDict(char *w) {
+	w = checkWord(w); if (!w) { return (DE_T*)0; }
+	DE_T *dp = (DE_T*)last;
+	if (isTmpW(w)) { dp = &tmpWords[w[1]-'0']; dp->xt = here; return dp; }
+	int ln = (int)strlen(w);
+	if (NAME_SZ <= ln) { ln = NAME_SZ-1; w[ln] = 0; }
+	if (ln == 0) { return (DE_T*)0; }
+	*(--dp) = (DE_T){ (ucell)here, 0, ln };
+	strcpy(dp->nm, w);
+	last = (cell)dp;
+	return dp;
+}
+
+DE_T *findInDict(char *w) {
+	w = checkWord(w); if (!w) { return (DE_T*)0; }
+	if (isTmpW(w)) { return &tmpWords[w[1]-'0']; }
+	int ln = (int)strlen(w);
+	for (DE_T *dp=(DE_T*)last; dp<(DE_T*)&mem[MEM_SZ]; dp++) {
+		if ((dp->ln == ln) && strEqI(dp->nm, w)) { return dp; }
+	}
+	return (DE_T *)0;
+}
+
+void inner(ucell pc) {
+	cell n, t, ir;
+next: ir = code[pc++];
+	switch (ir)	{
+		PRIMS(X2)
+	default:
+		if ((ir & LIT_MASK) == LIT_MASK) { push( (cell)(ir & LIT_BITS) ); goto next; }
+		if (code[pc] != EXIT) { rpush(pc); } // tail-call optimization
+		pc = ir;
+		goto next;
+	}
+}
+
+void outer(const char *src) {
+	char *svIn = toIn;
+	toIn = (char *)src;
+	while (nextWord() && (state != BYE)) {
+		if (strEqI(wd, "("))  { doComment(); continue; }
+		if (strEqI(wd, "\\")) { doLineComment(); continue; }
+		if (strEqI(wd, ";"))  { state=INTERPRET; comma(EXIT); continue; }
+		if (strEqI(wd, ":"))  { state=COMPILE; addToDict(0); continue; }
+		if (isNum(wd, base))  { doNum(); continue; }
+		DE_T *dp = findInDict(wd);
+		if (!dp) { compileErr(wd); state=INTERPRET; break; }
+		if ((state == INTERPRET) || (dp->fl & IMMED)) { doInterp(dp->xt); }
+		else { (dp->fl & INLINE) ? doInline(dp->xt) : comma(dp->xt); } // COMPILE
+	}
+	toIn = svIn;
+}
+
+void bmfInit() {
+	memset(&mem[0], 0, MEM_SZ);
+	dsp = rsp = lsp = tsp = 0;
+	here = LASTOP+1;
+	last = (ucell)&mem[MEM_SZ];
+	base = 10;
+	state = INTERPRET;
+	code = (ucell*)&mem[0];
+	toIn = (char*)"";
+	
+	NVP_T prims[] = { PRIMS(X3) { 0, 0 } };
+	NVP_T nv[] = {
+		{ "version", VERSION },
+		{ "(h)",     (cell)&here },    { "(l)",       (cell)&last },
+		{ "(lsp)",   (cell)&lsp },     { "lstk",      (cell)&lstk[0] },
+		{ "(rsp)",   (cell)&rsp },     { "rstk",      (cell)&rstk[0] },
+		{ "(tsp)",   (cell)&tsp },     { "tstk",      (cell)&tstk[0] },
+		{ "(sp)",    (cell)&dsp },     { "stk",       (cell)&dstk[0] },
+		{ "state",   (cell)&state },   { "base",      (cell)&base },
+		{ "mem",     (cell)&mem[0] },  { "mem-sz",    (cell)MEM_SZ },
+		{ ">in",     (cell)&toIn},     { "de-sz",     (cell)sizeof(DE_T)},
+		{ "cell",    (cell)CELL_SZ },  { 0, 0 }
+	};
+	for (int i = 0; nv[i].name; i++) { addLit(nv[i].name, nv[i].value); }
+	for (int i = 0; prims[i].name; i++) { addPrim(prims[i].name, prims[i].value); }
+}

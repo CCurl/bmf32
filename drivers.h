@@ -31,9 +31,8 @@ void pic_disable_irq(unsigned char irq);
 void ps2_init(void);
 void ps2_interrupt_handler(void);
 int ps2_has_key(void);
-unsigned char ps2_read_raw_scancode(void);
-char ps2_read_char(void);
-char ps2_getc(void);
+int ps2_get_scancode(void);  // Returns -1 if no key
+int ps2_getc_nonblocking(void);  // Returns -1 if no key, else ASCII char
 
 // ===== IDT (Interrupt Descriptor Table) =====
 void idt_init(void);

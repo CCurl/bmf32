@@ -250,8 +250,12 @@ static const char scancode_to_ascii[] = {
 
 #define SCANCODE_TABLE_SIZE (sizeof(scancode_to_ascii) / sizeof(scancode_to_ascii[0]))
 
-static volatile int keyboard_ready = 0;
-static volatile unsigned char last_scancode = 0;
+// PS/2 Ring Buffer for interrupt-driven keyboard
+#define PS2_BUFFER_SIZE 32
+static volatile unsigned char ps2_buffer[PS2_BUFFER_SIZE];
+static volatile int ps2_write_ptr = 0;
+static volatile int ps2_read_ptr = 0;
+static volatile int ps2_buffer_count = 0;
 
 void ps2_init(void) {
     // Initialize PS/2 controller (simplified for QEMU)
@@ -264,8 +268,6 @@ void ps2_init(void) {
     
     // Re-enable keyboard
     outb(PS2_CTRL_PORT, 0xAE);
-    
-    keyboard_ready = 1;
 }
 
 void ps2_interrupt_handler(void) {
@@ -276,46 +278,47 @@ void ps2_interrupt_handler(void) {
         unsigned char scancode = inb(PS2_DATA_PORT);
         
         // Filter out key releases (0xF0 prefix) for now
-        if (scancode != 0xF0) {
-            last_scancode = scancode;
-            keyboard_ready = 1;
+        if (scancode != 0xF0 && ps2_buffer_count < PS2_BUFFER_SIZE) {
+            // Add to ring buffer
+            ps2_buffer[ps2_write_ptr] = scancode;
+            ps2_write_ptr = (ps2_write_ptr + 1) % PS2_BUFFER_SIZE;
+            ps2_buffer_count++;
         }
     }
 }
 
+// Check if PS/2 buffer has data
 int ps2_has_key(void) {
-    return keyboard_ready;
+    return ps2_buffer_count > 0;
 }
 
-unsigned char ps2_read_raw_scancode(void) {
-    while (!keyboard_ready) {
-        asm volatile("hlt");
+// Get next scancode from ring buffer, non-blocking, returns -1 if empty
+int ps2_get_scancode(void) {
+    if (ps2_buffer_count == 0) {
+        return -1;
     }
-    unsigned char code = last_scancode;
-    keyboard_ready = 0;
-    return code;
+    unsigned char code = ps2_buffer[ps2_read_ptr];
+    ps2_read_ptr = (ps2_read_ptr + 1) % PS2_BUFFER_SIZE;
+    ps2_buffer_count--;
+    return (int)code;
 }
 
-char ps2_read_char(void) {
-    unsigned char scancode = ps2_read_raw_scancode();
-    
+// Convert scancode to ASCII character
+char ps2_scancode_to_char(unsigned char scancode) {
     if (scancode < SCANCODE_TABLE_SIZE) {
         return scancode_to_ascii[scancode];
     }
-    
-    // Unknown scancode, return null
-    return 0;
+    return 0;  // Unknown scancode
 }
 
-// Wait for keyboard and return ASCII character
-// Returns 0 if no valid character can be produced from scan code
-char ps2_getc(void) {
-    while (1) {
-        char ch = ps2_read_char();
-        if (ch != 0) {
-            return ch;
-        }
+// Get next character from PS/2, non-blocking, returns -1 if no key
+int ps2_getc_nonblocking(void) {
+    int scancode = ps2_get_scancode();
+    if (scancode < 0) {
+        return -1;
     }
+    char ch = ps2_scancode_to_char((unsigned char)scancode);
+    return (ch != 0) ? (int)ch : -1;
 }
 
 // ============================================================================

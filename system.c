@@ -30,7 +30,13 @@ int qKey(void) {
 static int ps2_init_done = 0;
 
 int key(void) {
-    // Use serial input only - PS/2 is not reliable in this test environment
+    // Check PS/2 keyboard first (interrupt-driven)
+    int ch = ps2_getc_nonblocking();
+    if (ch >= 0) {
+        return ch;
+    }
+    
+    // Fall back to serial input
     return serial_getc();
 }
 
@@ -120,6 +126,9 @@ void kmain(unsigned long magic, unsigned long addr) {
     // Enable interrupts
     asm volatile("sti");
     serial_write_string("Interrupts enabled\n");
+    
+    // Enable PS/2 keyboard interrupt (IRQ1)
+    pic_enable_irq(1);
     
     // Initialize ATA after interrupts are enabled (it may sleep)
     ata_init();

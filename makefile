@@ -4,7 +4,7 @@ BITS ?= 64
 all: kernel.elf
 
 clean:
-	rm -f *.o kernel.elf
+	rm -f *.o kernel.elf disk.img
 
 # Bare metal 32-bit kernel for QEMU
 CROSS_CC ?= gcc
@@ -26,43 +26,49 @@ idt-asm.o: idt.asm
 	$(FASM) idt.asm idt-asm.o
 
 # VM and Bare Metal System
-kernel.o: system.c fwc-vm.h fwc-vm.c drivers.h
+kernel.o: system.c bmf-vm.h bmf-vm.c drivers.h
 	$(CROSS_CC) $(CFLAGS_BARE) -DBARE_METAL -c system.c -o kernel.o
 
-fwc-vm.o: fwc-vm.c fwc-vm.h
-	$(CROSS_CC) $(CFLAGS_BARE) -DBARE_METAL -c fwc-vm.c -o fwc-vm.o
+bmf-vm.o: bmf-vm.c bmf-vm.h
+	$(CROSS_CC) $(CFLAGS_BARE) -DBARE_METAL -c bmf-vm.c -o bmf-vm.o
 
-fwc-boot.o: fwc-boot.c fwc-vm.h
-	$(CROSS_CC) $(CFLAGS_BARE) -DBARE_METAL -c fwc-boot.c -o fwc-boot.o
+bmf-boot.o: bmf-boot.c bmf-vm.h
+	$(CROSS_CC) $(CFLAGS_BARE) -DBARE_METAL -c bmf-boot.c -o bmf-boot.o
 
 # Kernel ELF image
-kernel.elf: boot.o drivers.o idt-asm.o kernel.o fwc-vm.o fwc-boot.o
+kernel.elf: boot.o drivers.o idt-asm.o kernel.o bmf-vm.o bmf-boot.o
 	$(LD) $(LDFLAGS_BARE) \
 		boot.o \
 		idt-asm.o \
 		drivers.o \
-		kernel.o fwc-vm.o fwc-boot.o \
+		kernel.o bmf-vm.o bmf-boot.o \
 		-o kernel.elf
 	ls -l kernel.elf
 
+# Create disk image (1MB)
+disk.img:
+	@echo "Creating disk image (1MB)..."
+	qemu-img create -f raw disk.img 1M
+
 # Run in QEMU
-run: kernel.elf
-	@echo "Starting FWC Bare Metal in QEMU (interactive serial console)..."
+run: kernel.elf disk.img
+	@echo "Starting BMF Bare Metal in QEMU (interactive serial console)..."
 	@echo "Press Ctrl+C to exit QEMU"
 	@echo ""
-	qemu-system-i386 -kernel kernel.elf -serial stdio -nographic -m 64 -monitor none
-
-run-debug: kernel.elf
-	@echo "Starting FWC Bare Metal in QEMU with debug output..."
 	qemu-system-i386 -kernel kernel.elf -serial stdio -nographic -m 64 -monitor none \
+		-drive file=disk.img,format=raw,if=ide
+
+run-debug: kernel.elf disk.img
+	@echo "Starting BMF Bare Metal in QEMU with debug output..."
+	qemu-system-i386 -kernel kernel.elf -serial stdio -nographic -m 64 -monitor none \
+		-drive file=disk.img,format=raw,if=ide \
 		-d int,guest_errors
 
 run-test: kernel.elf
 	@echo "Running QEMU test (output to /tmp/qemu_serial.log)..."
 	bash test_qemu.sh
 
-run-gdb: kernel.elf
+run-gdb: kernel.elf disk.img
 	qemu-system-i386 -kernel kernel.elf -serial stdio -nographic -m 64 -monitor none \
+		-drive file=disk.img,format=raw,if=ide \
 		-d int,guest_errors,cpu_reset -S -gdb tcp::1234
-
-clean:

@@ -1,9 +1,9 @@
-# FWC Bare Metal Implementation - Architecture Plan
+# BMF Bare Metal Implementation - Architecture Plan
 
 ## Overview
-Transform FWC from a hosted application into a minimal bare metal 32-bit OS that boots directly in QEMU.
+Transform BMF from a hosted application into a minimal bare metal 32-bit OS that boots directly in QEMU.
 
-**Core Strategy**: Keep FWC VM unchanged, create a thin x86 bootloader & kernel HAL layer to replace POSIX system.c, and provide Forth primitives for hardware access (serial, keyboard, timer, interrupts).
+**Core Strategy**: Keep BMF VM unchanged, create a thin x86 bootloader & kernel HAL layer to replace POSIX system.c, and provide Forth primitives for hardware access (serial, keyboard, timer, interrupts).
 
 **Recommended Approach**: Multiboot-compatible bootloader (grub-friendly) + minimal kernel stub (300-500 lines) + restructured system layer that maps Forth primitives to bare metal hardware.
 
@@ -18,20 +18,20 @@ Transform FWC from a hosted application into a minimal bare metal 32-bit OS that
 
 ### Memory Model: Flat 32-bit (no paging)
 - **Rationale**: Simpler for MVP, sufficient for QEMU test
-- **Layout**: Kernel at 1MB, FWC VM at 2MB, 4GB total addressable (32-bit limit)
+- **Layout**: Kernel at 1MB, BMF VM at 2MB, 4GB total addressable (32-bit limit)
 - **Caveat**: Limits real hardware to 4GB, no memory protection between processes
 
-### I/O: Serial Console (COM1) + PS/2 Keyboard
-- **Serial**: Main console (0x3F8 port, 115200 baud)
-- **Keyboard**: PS/2 scan codes from port 0x60
-- **Rationale**: QEMU default, reliable, no video driver needed
+### I/O: Serial Console (COM1, Primary) + PS/2 Keyboard (Disabled)
+- **Serial**: Main console (0x3F8 port, 115200 baud) - primary input method
+- **Keyboard**: PS/2 scan codes from port 0x60 (currently disabled for MVP stability)
+- **Rationale**: QEMU default, serial polling more reliable than interrupt-driven PS/2
 
 ### Interrupt Model: PIC (not APIC)
 - **Rationale**: Simpler, works on all x86, sufficient for MVP
 - **Caveat**: Limits scalability to single core; APIC needed for SMP
 
 ### Bootstrap: Embedded in Kernel
-- **Approach**: Embed fwc-boot.fth as kernel .rodata section
+- **Approach**: Embed bmf-boot.fth as kernel .rodata section
 - **Advantage**: Simplifies initial testing, no filesystem needed
 - **Alternative**: Load from disk (requires ATA driver, deferred)
 
@@ -55,7 +55,7 @@ Transform FWC from a hosted application into a minimal bare metal 32-bit OS that
 3. **system.c** (kmain + REPL, ~205 lines)
    - ✅ Initialize serial port (COM1)
    - ✅ Initialize PIC and IDT
-   - ✅ Initialize FWC VM
+   - ✅ Initialize BMF VM
    - ✅ Enter REPL loop with line buffering
 
 ### ✅ Phase 2: Hardware Abstraction Layer (COMPLETE)
@@ -81,10 +81,11 @@ All drivers consolidated into **drivers.c** and **drivers.h** (~1000 lines combi
    - ✅ EOI signaling for hardware interrupts
 
 4. **PS/2 Keyboard Driver** (~200 lines)
-   - ✅ PS/2 keyboard at port 0x60 (data), 0x64 (status)
-   - ✅ Scan code → ASCII conversion
-   - ✅ `ps2_has_key()`, `ps2_getc()`, `ps2_interrupt_handler()`
-   - ✅ Support for shift, ctrl, alt modifiers
+   - ⚠️ PS/2 keyboard at port 0x60 (data), 0x64 (status)
+   - ⚠️ Scan code → ASCII conversion
+   - ⚠️ `ps2_has_key()`, `ps2_getc()`, `ps2_interrupt_handler()`
+   - **Note:** Currently disabled in favor of serial-only input for MVP stability
+   - Support for shift, ctrl, alt modifiers available if re-enabled
 
 5. **IDT & ISR Stubs** (~200 lines combined)
    - ✅ **idt.c** - Interrupt Descriptor Table setup
@@ -107,13 +108,13 @@ All drivers consolidated into **drivers.c** and **drivers.h** (~1000 lines combi
    - ✅ Full debugging output available
 
 3. **Boot sequence verified**
-   - ✅ "FWC Bare Metal Kernel" prints to serial
+   - ✅ "BMF Bare Metal Kernel" prints to serial
    - ✅ All drivers init successfully, no crashes
    - ✅ REPL prompt appears and accepts input
    - ✅ Forth arithmetic tested and working
 
 ### ⏳ Phase 4: Bootstrap File (READY)
-1. **fwc-boot.fth** (Bootstrap vocabulary)
+1. **bmf-boot.fth** (Bootstrap vocabulary)
    - Ready to load as embedded kernel .rodata
    - Contains Forth control structures (if/then, begin/until, etc.)
    - Ready for testing in live kernel
@@ -135,9 +136,9 @@ All drivers consolidated into **drivers.c** and **drivers.h** (~1000 lines combi
 
 ### Core VM (Portable)
 ```
-fwc-vm.c           - Forth VM implementation (threaded code interpreter, 64 primitives)
-fwc-vm.h           - VM definitions and declarations
-fwc-boot.fth       - Bootstrap Forth vocabulary
+bmf-vm.c           - Forth VM implementation (threaded code interpreter, 64 primitives)
+bmf-vm.h           - VM definitions and declarations
+bmf-boot.fth       - Bootstrap Forth vocabulary
 block-01.fth       - Additional Forth definitions
 ```
 
@@ -180,6 +181,30 @@ test_qemu.sh       - QEMU launcher with output logging
 
 ---
 
+## Stability & Reliability Improvements
+
+### Register Preservation in ISRs
+**Problem**: Interrupt handlers corrupted Forth VM state by not saving registers before calling C functions.
+**Solution**: All ISR stubs now use `pushad`/`popad` to save all CPU registers (EAX-EDI, ESP, EBP).
+**Impact**: Eliminates non-deterministic crashes in long-running operations like `words` command.
+
+### Serial-Only Input Strategy
+**Problem**: Mixed serial polling and interrupt-driven PS/2 input caused conflicts. Timer/keyboard interrupts consumed serial data or left PS/2 in inconsistent state.
+**Solution**: Disabled serial interrupts (IER=0x00) and PS/2 input support. All keyboard input now via `serial_getc()` polling.
+**Impact**: Reliable, deterministic input handling in QEMU environment with `-serial stdio`.
+
+### Memory Initialization
+**Problem**: Uninitialized memory (particularly the dictionary area) contained garbage that corrupted word walks.
+**Solution**: Added `memset(&mem[0], 0, MEM_SZ)` in `bmfInit()` to zero entire 16MB memory space.
+**Impact**: Prevents garbage data from interfering with dictionary operations.
+
+### REPL Buffer Handling
+**Problem**: Old condition `if (pos > 0 || (pos == 0 && tib[0]))` could execute stale buffer content.
+**Solution**: Simplified to `if (pos > 0)` - only execute newly-read input.
+**Impact**: Prevents repeated execution of previous commands.
+
+---
+
 ## Key Abstractions
 
 | Component | File(s) | Purpose |
@@ -193,7 +218,7 @@ test_qemu.sh       - QEMU launcher with output logging
 | **PS/2 Driver** | drivers.c | Keyboard input via interrupts, scan→ASCII |
 | **IDT/ISR Stubs** | drivers.c, idt.asm | Interrupt dispatch, exception handling |
 | **String Utilities** | drivers.c | strcpy, strlen, memcpy, etc. (bare metal libc) |
-| **Forth VM** | fwc-vm.c/h | Threaded code interpreter (unchanged, 32-bit compatible) |
+| **Forth VM** | bmf-vm.c/h | Threaded code interpreter (unchanged, 32-bit compatible) |
 | **I/O Primitives** | system.c | zType(), emit(), key(), qKey() - ties VM to hardware |
 
 ---
@@ -203,7 +228,7 @@ test_qemu.sh       - QEMU launcher with output logging
 ### Phase 1-2 Verification
 1. kernel.elf produces valid ELF binary
 2. QEMU boots without crash: `qemu-system-i386 -kernel kernel.elf`
-3. Serial output visible: "FWC Bare Metal Kernel starting..."
+3. Serial output visible: "BMF Bare Metal Kernel starting..."
 4. No exceptions/page faults in QEMU debug
 
 ### Phase 3 Verification

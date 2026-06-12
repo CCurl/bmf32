@@ -1,4 +1,4 @@
-; Multiboot-compliant 32-bit bootloader for FWC bare metal OS
+; Multiboot-compliant 32-bit bootloader for BMF bare metal OS
 ; Assembled with FASM: fasm boot.asm boot.o
 ; This is linked at the beginning of the kernel by linker.ld
 

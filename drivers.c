@@ -1,4 +1,4 @@
-// drivers.c - Consolidated bare metal driver implementation for FWC
+// drivers.c - Consolidated bare metal driver implementation for BMF
 // Combines: serial.c, timer.c, pic.c, ps2.c, string.c, idt.c
 
 #include "drivers.h"
@@ -59,8 +59,9 @@ void serial_init(void) {
     // Set MCR: DTR, RTS, and OUT2 (needed for interrupts)
     outb(COM1_MCR, 0x0B);
     
-    // Enable interrupts: data available interrupt only (for MVP)
-    outb(COM1_IER, 0x01);
+    // Disable serial interrupts - we use polling for MVP
+    // (we only enable data available interrupt here, but don't buffer the data)
+    outb(COM1_IER, 0x00);
     
     serial_initialized = 1;
 }

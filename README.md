@@ -1,22 +1,24 @@
-# FWC: a very minimal Word-Code Forth
+# BMF: a very minimal Word-Code Forth
 
-FWC is a minimal Forth system that can run stand-alone or be embedded into another program.
+BMF is a minimal Forth system that can run stand-alone or be embedded into another program.
 
-FWC is implemented in modular source files:
-- **Core VM:** `fwc-vm.c` and `fwc-vm.h` (Forth virtual machine, ~200 lines)
+BMF is implemented in modular source files:
+- **Core VM:** `bmf-vm.c` and `bmf-vm.h` (Forth virtual machine, ~200 lines)
 - **Hardware Drivers:** `drivers.c` and `drivers.h` (consolidated: serial, timer, PIC, PS/2, IDT, string utilities)
 - **System Layer:** `system.c` (bare metal I/O, interrupt handling, REPL)
 - **Bootloader:** `boot.asm` and `linker.ld` (FASM, Multiboot-compliant)
 - **Interrupts:** `idt.asm` (FASM, ISR stubs and handlers)
 
-FWC has 64 primitives, all implemented as a high-performance threaded code interpreter.
+BMF has 64 primitives, all implemented as a high-performance threaded code interpreter.
 The primitives are quite complete and any Forth system can be built from them.
-Bootstrap files `fwc-boot.fth` and `block-01.fth` provide higher-level vocabulary.
+Bootstrap files `bmf-boot.fth` and `block-01.fth` provide higher-level vocabulary.
 
 ## Bare Metal 32-bit OS Mode
 
-FWC can also run as a **bare metal operating system** on 32-bit x86 QEMU or real hardware.
+BMF can also run as a **bare metal operating system** on 32-bit x86 QEMU or real hardware.
 See [BARE_METAL.md](BARE_METAL.md) for details on building and running the bare metal kernel.
+
+**Current Status**: ✅ Stable and deterministic - all interrupt-related non-determinism fixed, reliable interactive Forth execution verified.
 
 **Quick start:**
 ```bash
@@ -24,16 +26,16 @@ make kernel.elf          # Build bare metal kernel (31 KB)
 make qemu-run            # Run in QEMU emulator
 ```
 
-In a FWC program, each instruction is a single CELL.
+In a BMF program, each instruction is a single CELL.
 - A CELL is either a QWord (64-bits), or a DWord (32-bits).
 - If <= the last primitive (system), then it is a primitive.
 - Else, if it is in the range from `0` to `LIT_MASK`, then it is a literal.
 - Else, it is the XT (code address) of a word in the dictionary.
 
-### STATES in FWC
-Setting `STATE` to 999 signals FWC to exit.
+### STATES in BMF
+Setting `STATE` to 999 signals BMF to exit.
 
-### FWC hard-codes the following IMMEDIATE words:
+### BMF hard-codes the following IMMEDIATE words:
 
 | Word | Behavior |
 |:--   |:-- |
@@ -44,7 +46,7 @@ Setting `STATE` to 999 signals FWC to exit.
 
 ### ColorForth influences
 
-FWC will change the state depending on embedded bytes in the whitespace.<br/>
+BMF will change the state depending on embedded bytes in the whitespace.<br/>
 NOTE: I cannot use '$00' for INTERPRET because that is the line terminator.<br/>
 
 | Byte | Behavior                      |
@@ -73,13 +75,13 @@ Use `+L` to create new versions of the variables.<br/>
 Use `-L` to destroy the most recently created variables.<br/>
 `+L` and `-L` can be used at any time for any reason.
 
-## Building FWC (Hosted Mode)
+## Building BMF (Hosted Mode)
 
 ### Linux
 There is a makefile for hosted builds (Linux/Windows targets).
 - **Default (64-bit):** `make`
 - **32-bit:** `BITS=32 make`
-- **Run:** `./fwc` or `make run`
+- **Run:** `./bmf` or `make run`
 
 ### Windows
 There is a .SLN file with configurations for 32-bit and 64-bit builds.
@@ -87,20 +89,20 @@ There is a .SLN file with configurations for 32-bit and 64-bit builds.
 ### Bare Metal (32-bit QEMU/x86)
 For bare metal kernel building, see [BARE_METAL.md](BARE_METAL.md).
 
-## FWC Startup Behavior
+## BMF Startup Behavior
 
-On startup, FWC does the following:
+On startup, BMF does the following:
 - Create 'argc' with the count of command-line arguments.
 - For each argument, create 'argX' with the address of th1.e argument string
-- For example, `arg0 ztype` will print `fwc`.
+- For example, `arg0 ztype` will print `bmf`.
 - If arg1 exists and names a file that can be opened, load that file.
-- Else, try to load file 'fwc-boot.fth' in the current folder.
-- Else, try to load file 'fwc-boot.fth' in the `BIN_DIR` folder.
+- Else, try to load file 'bmf-boot.fth' in the current folder.
+- Else, try to load file 'bmf-boot.fth' in the `BIN_DIR` folder.
 - On Linux, `BIN_DIR` is "/home/chris/bin/".
 - On Windows, `BIN_DIR` is "D:\\bin\\".
-- `BIN_DIR` is defined in fwc-vm.h. Adjust it in `fwc-vm.h` for your system as desired.
+- `BIN_DIR` is defined in bmf-vm.h. Adjust it in `bmf-vm.h` for your system as desired.
 
-**Note:** In bare metal mode, file I/O is not available. FWC runs from an embedded bootstrap in kernel memory.
+**Note:** In bare metal mode, file I/O is not available. BMF runs from an embedded bootstrap in kernel memory.
 
 ## The VM Primitives
 
@@ -197,13 +199,13 @@ On startup, FWC does the following:
 | de-sz     | (--n) | The size of a dictionary in bytes (32). |
 | cell      | (--n) | The size of a CELL in bytes (4 or 8). |
 
-##   Embedding FWC in your C or C++ project
+##   Embedding BMF in your C or C++ project
 
 For **bare metal builds**, see [BARE_METAL.md](BARE_METAL.md).
 
-For **hosted mode** (Linux/Windows), modify `system.c` to provide the I/O primitives. The VM core files `fwc-vm.c/h` are portable and require only standard C library functions.
-#include "fwc-vm.h"
-// ... implement the functions fwc-vm.c needs
+For **hosted mode** (Linux/Windows), modify `system.c` to provide the I/O primitives. The VM core files `bmf-vm.c/h` are portable and require only standard C library functions.
+#include "bmf-vm.h"
+// ... implement the functions bmf-vm.c needs
 bmfInit();
 outer(".\" Hello World!\"");
 ```

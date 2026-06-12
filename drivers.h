@@ -1,4 +1,4 @@
-// drivers.h - Bare metal driver interface for FWC
+// drivers.h - Bare metal driver interface for BMF
 
 #ifndef DRIVERS_H
 #define DRIVERS_H

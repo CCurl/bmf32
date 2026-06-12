@@ -1,4 +1,4 @@
-# FWC Bare Metal Implementation - Progress & Status
+# BMF Bare Metal Implementation - Progress & Status
 
 ## ✅ COMPLETED: Phase 1-2 (Boot + HAL + Drivers)
 
@@ -58,8 +58,8 @@
   - File I/O stubs returning error codes (no filesystem)
   - REPL loop with line buffering
 
-#### FWC VM Integration
-- ✅ `fwc-vm.c/h`
+#### BMF VM Integration
+- ✅ `bmf-vm.c/h`
   - No changes needed, 32-bit compatible
   - Integrated with bare metal HAL
   - 64 primitives available
@@ -111,7 +111,7 @@ for/next       → Loops working correctly
 - ✅ Multiboot bootloader loads kernel.elf at 0x100000
 - ✅ Protected mode (32-bit) active
 - ✅ All drivers initialize without crash
-- ✅ FWC VM initializes successfully
+- ✅ BMF VM initializes successfully
 - ✅ REPL interactive and fully functional
 - ✅ Forth arithmetic operations validated
 - ✅ I/O via emit() and serial working
@@ -122,9 +122,10 @@ for/next       → Loops working correctly
 - ✅ Interrupts loaded and enabled (STI)
 
 ### Current Limitations
-- No fwc-boot.fth loaded (MVP only has built-in 64 primitives)
+- No bmf-boot.fth loaded (MVP only has built-in 64 primitives)
 - No file I/O (no filesystem, no ATA driver yet)
 - Limited to kernel-provided Forth words
+- Serial input preferred over PS/2 for reliability in MVP
 
 ---
 
@@ -136,7 +137,7 @@ boot.o                 600 bytes (FASM ELF object)
 drivers.o           ~8 KB (serial + timer + pic + ps2 + idt + string)
 idt-asm.o           1196 bytes (FASM ELF object)
 bare_metal_system.o         ~3 KB
-fwc-vm.o                    ~8 KB
+bmf-vm.o                    ~8 KB
 ```
 
 ### Final Kernel
@@ -158,7 +159,7 @@ idt-asm.o: missing .note.GNU-stack section
   - QEMU doesn't require this section, harmless warning
   - Can be fixed by adding: `section .note.GNU-stack noalloc noexec`
 
-fwc-vm.c:72:31: warning: implicit declaration of function 'system'
+bmf-vm.c:72:31: warning: implicit declaration of function 'system'
   - system() provided by string.c, works correctly
 ```
 
@@ -169,7 +170,7 @@ fwc-vm.c:72:31: warning: implicit declaration of function 'system'
 ### What Works (All Validated) ✅
 1. **Boot Sequence**: Bootloader → protected mode → C kernel ✅
 2. **Hardware**: Serial, timer, PIC, PS/2, IDT all operational ✅
-3. **FWC VM**: Initialization complete, primitives functional ✅
+3. **BMF VM**: Initialization complete, primitives functional ✅
 4. **Console**: Serial I/O working at 115200 baud, interactive ✅
 5. **Interrupts**: IDT loaded, interrupts enabled (STI) ✅
 6. **Forth Execution**: 
@@ -182,7 +183,7 @@ fwc-vm.c:72:31: warning: implicit declaration of function 'system'
 
 ### What Needs Implementation
 1. **Serial Input Loop** - Make REPL interactive via serial
-2. **Bootstrap File** - Load fwc-boot.fth from embedded memory
+2. **Bootstrap File** - Load bmf-boot.fth from embedded memory
 3. **File I/O** - Implement ATA driver for block disk access
 4. **Memory Paging** - For multi-task support
 5. **Networking** (if needed)
@@ -198,6 +199,25 @@ fwc-vm.c:72:31: warning: implicit declaration of function 'system'
 4. ✅ 64 primitives available and functional
 5. ✅ ATA/IDE driver - PIO mode disk read/write implemented
 
+### Phase 3: Stability & Determinism (DONE) ✅
+1. ✅ Fixed non-deterministic `words` command
+   - Root cause: Interrupt handlers corrupting Forth VM registers
+   - Fix: Added pushad/popad to all ISR stubs (idt.asm)
+   - Result: Consistent, reliable execution across all runs
+2. ✅ Resolved input handling issues
+   - Root cause: Serial/interrupt conflict + PS/2 hangs
+   - Fix: Disabled serial interrupts, simplified input to serial polling
+   - Result: Reliable keyboard input via serial console
+3. ✅ Fixed register preservation in exceptions
+   - Reordered ISR stubs to save registers before using them
+   - CPU exceptions (INT0-14) now properly preserve state
+4. ✅ Cleared uninitialized memory
+   - Added memset() in bmfInit() to zero all memory
+   - Prevents garbage data in dictionary walks
+5. ✅ Fixed REPL buffer handling
+   - Removed stale buffer execution logic
+   - Only executes newly-read input
+
 ### Near-term (NOT YET STARTED)
 1. ❌ **Add block abstraction layer** (1024-byte blocks = 2 sectors)
    - Traditional Forth block model
@@ -210,7 +230,7 @@ fwc-vm.c:72:31: warning: implicit declaration of function 'system'
    - Embed initial Forth code
 
 ### Medium-term (1-2 weeks)
-1. Embed and load fwc-boot.fth from disk blocks
+1. Embed and load bmf-boot.fth from disk blocks
 2. Build high-level Forth vocabulary from disk
 3. Test complex Forth programs loaded from blocks
 4. File persistence and state saving
@@ -249,13 +269,13 @@ fwc-vm.c:72:31: warning: implicit declaration of function 'system'
    - Impact: Cannot load Forth blocks or save state
    - Solution: Implement PIO-mode ATA driver (~250 lines)
 
-2. **Bootstrap not auto-loaded** - fwc-boot.fth requires manual loading
+2. **Bootstrap not auto-loaded** - bmf-boot.fth requires manual loading
    - Missing: Disk read capability, block I/O layer
    - Impact: Only built-in 64 Forth primitives available
    - Solution: Load from disk blocks after ATA driver ready
 
-3. **Limited memory** (Low Priority) - 16 MB FWC VM sufficient for MVP
-   - Could increase: MEM_SZ in fwc-vm.h (up to 2GB in 32-bit mode)
+3. **Limited memory** (Low Priority) - 16 MB BMF VM sufficient for MVP
+   - Could increase: MEM_SZ in bmf-vm.h (up to 2GB in 32-bit mode)
 
 4. **Single CPU** (Not Needed for MVP)
    - PIC only supports one CPU, no SMP
@@ -270,7 +290,7 @@ fwc-vm.c:72:31: warning: implicit declaration of function 'system'
 ## Files & Directory Structure
 
 ```
-/home/chris/code/fwc/
+/home/chris/code/bmf/
 ├── 
 │   ├── boot.asm          (FASM bootloader, 100 lines)
 │   ├── boot.o            (compiled, 600 bytes)
@@ -289,8 +309,8 @@ fwc-vm.c:72:31: warning: implicit declaration of function 'system'
 │   └── idt-asm.o         (compiled, 1196 bytes)
 │
 ├── bare_metal_system.c   (HAL, 205 lines)
-├── fwc-vm.c/h            (Forth VM, 64 primitives)
-├── fwc-boot.fth          (bootstrap - to be loaded from disk)
+├── bmf-vm.c/h            (Forth VM, 64 primitives)
+├── bmf-boot.fth          (bootstrap - to be loaded from disk)
 ├── kernel.elf            (31 KB final binary)
 ├── makefile              (build rules, consolidated drivers)
 ├── test_qemu.sh          (test script)

@@ -19,8 +19,7 @@ section '.text'
 ; Common handler for exceptions (doesn't call PIC_EOI)
 public common_interrupt_handler
 common_interrupt_handler:
-    pushad              ; Save all registers
-    push dword [esp+32] ; Push interrupt number (in EAX from caller)
+    push eax            ; Push exception number as argument
     call handle_interrupt
     add esp, 4
     popad
@@ -49,6 +48,7 @@ load_idt:
 public isr_32
 isr_32:
     cli
+    pushad              ; Save all registers
     
     ; Call timer tick increment
     call timer_increment_ticks
@@ -57,6 +57,7 @@ isr_32:
     mov al, 0x20
     out 0x20, al
     
+    popad               ; Restore all registers
     sti
     iret
 
@@ -64,6 +65,7 @@ isr_32:
 public isr_33
 isr_33:
     cli
+    pushad              ; Save all registers
     
     ; Call PS/2 handler
     call ps2_interrupt_handler
@@ -72,6 +74,7 @@ isr_33:
     mov al, 0x20
     out 0x20, al
     
+    popad               ; Restore all registers
     sti
     iret
 
@@ -79,6 +82,7 @@ isr_33:
 public isr_36
 isr_36:
     cli
+    pushad              ; Save all registers
     
     ; Read from serial port (COM1 data at 0x3F8)
     mov dx, 0x3F8
@@ -91,76 +95,91 @@ isr_36:
     mov al, 0x20
     out 0x20, al
     
+    popad               ; Restore all registers
     sti
     iret
 
 ; Generic exception handlers (for debugging)
 public isr_0
 isr_0:
+    pushad
     mov eax, 0
     jmp common_interrupt_handler
 
 public isr_1
 isr_1:
+    pushad
     mov eax, 1
     jmp common_interrupt_handler
 
 public isr_2
 isr_2:
+    pushad
     mov eax, 2
     jmp common_interrupt_handler
 
 public isr_3
 isr_3:
+    pushad
     mov eax, 3
     jmp common_interrupt_handler
 
 public isr_4
 isr_4:
+    pushad
     mov eax, 4
     jmp common_interrupt_handler
 
 public isr_5
 isr_5:
+    pushad
     mov eax, 5
     jmp common_interrupt_handler
 
 public isr_6
 isr_6:
+    pushad
     mov eax, 6
     jmp common_interrupt_handler
 
 public isr_7
 isr_7:
+    pushad
     mov eax, 7
     jmp common_interrupt_handler
 
 public isr_8
 isr_8:
+    pushad
     mov eax, 8
     jmp common_interrupt_handler
 
 public isr_10
 isr_10:
+    pushad
     mov eax, 10
     jmp common_interrupt_handler
 
 public isr_11
 isr_11:
+    pushad
     mov eax, 11
     jmp common_interrupt_handler
 
 public isr_12
 isr_12:
+    pushad
     mov eax, 12
     jmp common_interrupt_handler
 
 public isr_13
 isr_13:
+    pushad
     mov eax, 13
     jmp common_interrupt_handler
 
 public isr_14
 isr_14:
+    pushad
     mov eax, 14
     jmp common_interrupt_handler

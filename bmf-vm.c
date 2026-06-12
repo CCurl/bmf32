@@ -1,5 +1,5 @@
 // A Tachyon inspired system, MIT license, (c) 2026 Chris Curl
-#include "fwc-vm.h"
+#include "bmf-vm.h"
 
 #define X1(op, name, theCode) op,
 #define X2(op, name, theCode) case op: theCode goto next;
@@ -64,8 +64,8 @@
 	X(ADDW,   "add-word", addToDict(0); ) \
 	X(OUTER,  "outer",    t = pop(); outer((char*)t); ) \
 	X(MOVE,   "cmove",    t = pop(); n = pop(); memmove((void*)n, (void*)pop(), t); ) \
-	X(BRD,    "read",     t = pop(); n = pop(); readBlock((uint32_t)t, (unsigned char*)n); ) \
-	X(BWT,    "write",    t = pop(); n = pop(); writeBlock((uint32_t)t, (unsigned char*)n); ) \
+	X(BRD,    "read",     t = pop(); n = pop(); readBlock((uint32_t)n, (unsigned char*)t); ) \
+	X(BWT,    "write",    t = pop(); n = pop(); writeBlock((uint32_t)n, (unsigned char*)t); ) \
 	X(LASTOP, "s-len",    TOS = strlen((char*)TOS); )
 
 enum { PRIMS(X1) };
@@ -174,6 +174,7 @@ void outer(const char *src) {
 }
 
 void bmfInit() {
+	memset(&mem[0], 0, MEM_SZ);
 	dsp = rsp = lsp = tsp = 0;
 	here = LASTOP+1;
 	last = (ucell)&mem[MEM_SZ];
@@ -181,6 +182,7 @@ void bmfInit() {
 	state = INTERPRET;
 	code = (ucell*)&mem[0];
 	toIn = (char*)"";
+	
 	NVP_T prims[] = { PRIMS(X3) { 0, 0 } };
 	NVP_T nv[] = {
 		{ "version", VERSION },

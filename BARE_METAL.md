@@ -1,6 +1,6 @@
-# FWC Bare Metal 32-bit OS
+# BMF Bare Metal 32-bit OS
 
-FWC can run as a **bare metal operating system** on 32-bit x86 processors, tested with QEMU emulator and designed for real hardware compatibility.
+BMF can run as a **bare metal operating system** on 32-bit x86 processors, tested with QEMU emulator and designed for real hardware compatibility.
 
 ## Quick Start
 
@@ -17,23 +17,26 @@ make qemu-run            # Launch in QEMU with serial console
 
 ### Expected Output
 ```
-Booting from ROM..FWC Bare Metal Kernel starting...
+Booting from ROM..BMF Bare Metal Kernel starting...
 Timer initialized
 PIC initialized
 PS/2 Keyboard initialized
 IDT initialized
 Interrupts enabled
-FWC VM initialized
-FWC Bare Metal v1.0
+ATA/IDE initialized
+BMF VM initialized
+BMF - Bare Metal Forth - v0.1
  ok
 ```
+
+**Note:** System is now fully deterministic and stable. Serial input works reliably.
 
 ## Architecture
 
 ### Memory Layout
 - **0x00000000 - 0x00100000**: BIOS/bootloader, reserved
 - **0x00100000 (1MB)**: Kernel entry point (Multiboot load address)
-- **0x00200000 (2MB)**: FWC VM memory (16 MB, configurable)
+- **0x00200000 (2MB)**: BMF VM memory (16 MB, configurable)
 - **Flat 32-bit addressing**: No paging or virtual memory (MVP)
 
 ### Boot Process
@@ -51,9 +54,9 @@ FWC Bare Metal v1.0
    - PS/2 Keyboard
    - Enable interrupts with STI
 
-3. **FWC VM Initialization**:
+3. **BMF VM Initialization**:
    - `bmfInit()` - Setup primitives, stacks, dictionary
-   - Load bootstrap (currently minimal, ready for fwc-boot.fth)
+   - Load bootstrap (currently minimal, ready for bmf-boot.fth)
    - Enter REPL loop
 
 ### Hardware Drivers
@@ -78,7 +81,7 @@ All drivers are consolidated in **drivers.c** and **drivers.h** (~1000 lines com
 - Functions: `pic_init()`, `pic_send_eoi()`, `pic_enable_irq()`, `pic_disable_irq()`
 
 #### PS/2 Keyboard (Ports 0x60/0x64)
-- Reads scan codes from keyboard port 0x60
+- **Note:** Currently disabled in favor of serial input for MVP stability
 - Status register at port 0x64
 - Functions: `ps2_init()`, `ps2_has_key()`, `ps2_getc()`, `ps2_interrupt_handler()`
 - Supports shift, ctrl, alt for modified keys
@@ -87,11 +90,16 @@ All drivers are consolidated in **drivers.c** and **drivers.h** (~1000 lines com
 - **idt.c** + **idt.asm**
 - Interrupt Descriptor Table setup
 - ISR stubs for exceptions (INT 0-14) and hardware IRQs (INT 32-47)
+- **Register Preservation:** All ISR handlers now properly save/restore registers with pushad/popad
+  - Hardware IRQs (INT32, INT33, INT36) save registers before calling C handlers
+  - CPU exceptions (INT0-14) save registers before invoking common handler
+  - Prevents interrupt corruption of Forth VM state
 - Specific handlers:
   - **INT32 (IRQ0/Timer)**: Calls `timer_increment_ticks()`
-  - **INT33 (IRQ1/Keyboard)**: Calls `ps2_interrupt_handler()`
-  - **INT36 (IRQ4/Serial)**: Reads from serial port (optional)
+  - **INT33 (IRQ1/Keyboard)**: Calls `ps2_interrupt_handler()` (currently disabled)
+  - **INT36 (IRQ4/Serial)**: Serial data available (interrupts disabled in MVP)
 - Functions: `idt_init()`, `load_idt()`
+- **Input Method:** Serial polling via `serial_getc()` (serial interrupts disabled for stability)
 
 #### String Library (libc Replacements)
 - Implements: `strcasecmp()`, `strlen()`, `strcpy()`, `memcpy()`, `memmove()`, `memset()`
@@ -118,7 +126,7 @@ All drivers are consolidated in **drivers.c** and **drivers.h** (~1000 lines com
   drivers.h         - Unified driver interface
 
 system.c - HAL layer (replaces POSIX system.c)
-fwc-vm.c/h         - Forth VM (unchanged from hosted, 32-bit compatible)
+bmf-vm.c/h         - Forth VM (unchanged from hosted, 32-bit compatible)
 kernel.elf         - Final bare metal kernel binary (~31 KB)
 
 Makefile           - Build rules for bare metal targets
@@ -165,11 +173,11 @@ The kernel is **Multiboot-compliant**, so it can be loaded by:
 1. Compile kernel as described above
 2. Create GRUB menu entry pointing to kernel.elf
 3. Boot with GRUB on x86-32 machine
-4. Should see same "FWC Bare Metal Kernel starting..." message on serial console
+4. Should see same "BMF Bare Metal Kernel starting..." message on serial console
 
 Example GRUB menu entry:
 ```
-menuentry 'FWC Bare Metal' {
+menuentry 'BMF Bare Metal' {
     multiboot /boot/kernel.elf
     boot
 }
@@ -219,7 +227,7 @@ gdb kernel.elf
 
 ## HAL Interface (system.c)
 
-The bare metal HAL provides these functions to FWC VM:
+The bare metal HAL provides these functions to BMF VM:
 
 ### Console I/O
 - `void zType(const char *str)` - Output string to serial
@@ -249,7 +257,7 @@ The bare metal HAL provides these functions to FWC VM:
 ## Known Limitations (MVP)
 
 1. **No filesystem** - Cannot load files from disk
-   - Solution: Pre-embed fwc-boot.fth in kernel memory or implement ATA driver
+   - Solution: Pre-embed bmf-boot.fth in kernel memory or implement ATA driver
 
 2. **Single task** - No process isolation or concurrency
    - Solution: Implement cooperative multitasking via Forth TASK word

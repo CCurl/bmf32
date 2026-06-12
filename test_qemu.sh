@@ -1,7 +1,7 @@
 #!/bin/bash
-# Test FWC bare metal kernel in QEMU
+# Test BMF bare metal kernel in QEMU
 
-echo "Testing FWC Bare Metal Kernel in QEMU..."
+echo "Testing BMF Bare Metal Kernel in QEMU..."
 echo "Expected: Serial output from bootloader"
 echo "---"
 

@@ -1,7 +1,7 @@
-// Bare metal system layer for FWC - replaces POSIX system.c
+// Bare metal system layer for BMF - replaces POSIX system.c
 // Provides minimal OS functionality for 32-bit x86 bare metal QEMU
 
-#include "fwc-vm.h"
+#include "bmf-vm.h"
 #include "drivers.h"
 
 // ===== OUTPUT LAYER =====
@@ -30,23 +30,7 @@ int qKey(void) {
 static int ps2_init_done = 0;
 
 int key(void) {
-    // Flush stray PS/2 scan code from initialization
-    if (!ps2_init_done) {
-        ps2_init_done = 1;
-        if (ps2_has_key()) {
-            ps2_getc();  // Discard stray code
-        }
-    }
-    
-    // Read from keyboard (PS/2) or serial
-    if (ps2_has_key()) {
-        char ch = ps2_getc();
-        if (ch != 0) {
-            return (int)ch;
-        }
-    }
-    
-    // Fall back to serial
+    // Use serial input only - PS/2 is not reliable in this test environment
     return serial_getc();
 }
 
@@ -75,10 +59,9 @@ void writeBlock(ucell blockNum, unsigned char *buffer) {
     ata_write_sector(blk+1, buffer + 512);
 }
 
-char tib[128], fn[32];
+char tib[128];
 
 // ===== REPL (Read-Eval-Print Loop) =====
-
 void repl(void) {
     if (state != COMPILE) {
         state = INTERPRET;
@@ -91,24 +74,23 @@ void repl(void) {
     while (pos < 127) {
         int ch = key();
         
-        if (ch == '\r' || ch == '\n') {
+        if ((ch == '\r') || (ch == '\n')) {
             tib[pos] = 0;
             emit('\n');
             break;
-        } else if (ch == '\b' || ch == 127) {  // Backspace or DEL
+        } else if ((ch == '\b') || (ch == 127)) {  // Backspace or DEL
             if (pos > 0) {
                 pos--;
-                emit('\b');
-                emit(' ');
-                emit('\b');
+                zType("\b \b");
             }
-        } else if (ch >= 32 && ch < 127) {  // Printable character
+        } else if ((ch >= 32) && (ch < 127)) {  // Printable character
             tib[pos++] = (char)ch;
             emit((char)ch);
         }
     }
     
-    if (pos > 0 || (pos == 0 && tib[0])) {
+    // Only execute if we read something new
+    if (pos > 0) {
         outer(tib);
     }
 }
@@ -121,7 +103,7 @@ extern void bmfInit(void);
 void kmain(unsigned long magic, unsigned long addr) {
     // Initialize hardware
     serial_init();
-    serial_write_string("FWC Bare Metal Kernel starting...\n");
+    serial_write_string("BMF Bare Metal Kernel starting...\n");
     
     timer_init();
     serial_write_string("Timer initialized\n");
@@ -143,9 +125,9 @@ void kmain(unsigned long magic, unsigned long addr) {
     ata_init();
     serial_write_string("ATA/IDE initialized\n");
     
-    // Initialize FWC VM
+    // Initialize BMF VM
     bmfInit();
-    serial_write_string("FWC VM initialized\n");
+    serial_write_string("BMF VM initialized\n");
     
     // Boot Forth system
     bmfBoot();

@@ -34,7 +34,7 @@ enum { INTERPRET=0, COMPILE=1, BYE=999 };
 typedef struct { ucell xt; byte fl; byte ln; char nm[NAME_SZ]; } DE_T;
 typedef struct { char *name; ucell value; } NVP_T;
 
-// These are defined by fwc-vm.c
+// These are defined by bmf-vm.c
 extern void inner(ucell start);
 extern void outer(const char *src);
 extern void addLit(const char *name, cell val);
@@ -44,7 +44,7 @@ extern DE_T *addToDict(char *w);
 extern cell state;
 extern char mem[];
 
-// fwc-vm.c needs these to be defined
+// bmf-vm.c needs these to be defined
 extern void outer(const char *src);
 extern void zType(const char *str);
 extern void emit(const char ch);

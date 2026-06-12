@@ -1,4 +1,4 @@
-/* Linker script for FWC bare metal 32-bit kernel
+/* Linker script for BMF bare metal 32-bit kernel
  * Positions kernel at 1MB (0x100000) standard QEMU/multiboot load address
  */
 

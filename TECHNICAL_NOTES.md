@@ -1,4 +1,4 @@
-# FWC Bare Metal Implementation - Technical Notes
+# BMF Bare Metal Implementation - Technical Notes
 
 ## Source File Organization
 
@@ -212,7 +212,7 @@ void kmain(unsigned long magic, unsigned long addr) {
     asm volatile("sti");
     
     // 7. Higher-level systems
-    bmfInit();  // FWC Forth VM
+    bmfInit();  // BMF Forth VM
 }
 ```
 
@@ -239,7 +239,7 @@ void kmain(unsigned long magic, unsigned long addr) {
   ```
   0x00000000 - 0x00100000: Reserved (bootloader, BIOS)
   0x00100000 - 0x00200000: Kernel code/data
-  0x00200000 - 0x02000000: FWC VM (16 MB)
+  0x00200000 - 0x02000000: BMF VM (16 MB)
   0x02000000 - ...        : Unused
   0xFFFFFFFF: Top of 32-bit space
   ```
@@ -250,7 +250,7 @@ void kmain(unsigned long magic, unsigned long addr) {
 
 ### Why Implement Them?
 
-Bare metal cannot link standard libc. FWC depends on:
+Bare metal cannot link standard libc. BMF depends on:
 - `strcasecmp()` - Used in dictionary lookup
 - `strlen()` - Used in word name handling
 - `strcpy()` - Used in word copying
@@ -313,24 +313,48 @@ void idt_init(void) {
 }
 ```
 
-### ISR Stubs (idt.asm)
+### ISR Stubs (idt.asm) - Register Preservation
 
-Each interrupt needs a stub that:
-1. Saves registers
-2. Calls C handler
-3. Restores registers
-4. Returns with IRET
+Each interrupt needs a stub that properly saves ALL registers. This prevents interrupt handlers from corrupting the Forth VM state.
 
+**Hardware IRQs (INT32, INT33, INT36):**
 ```fasm
 public isr_32
 isr_32:
     cli                          ; Disable interrupts
-    call timer_increment_ticks   ; C handler
+    pushad                       ; Save ALL registers (eax, ecx, edx, ebx, esp, ebp, esi, edi)
+    
+    call timer_increment_ticks   ; C handler (can modify eax/ecx/edx)
+    
     mov al, 0x20                 ; EOI command
     out 0x20, al                 ; Send to PIC
+    
+    popad                        ; Restore ALL registers
     sti                          ; Re-enable interrupts
     iret                         ; Return from interrupt
 ```
+
+**CPU Exceptions (INT0-14):**
+```fasm
+public isr_0
+isr_0:
+    pushad                       ; Save ALL registers FIRST
+    mov eax, 0                   ; Set exception number
+    jmp common_interrupt_handler ; Go to common handler
+```
+
+**Common Handler:**
+```fasm
+public common_interrupt_handler
+common_interrupt_handler:
+    push eax                     ; Push exception number as argument
+    call handle_interrupt        ; C handler
+    add esp, 4                   ; Clean up argument
+    popad                        ; Restore all registers
+    iret                         ; Return from interrupt
+```
+
+**Key Point**: Register preservation prevents interrupt handlers from corrupting Forth execution context, ensuring deterministic behavior.
 
 ### PIC Configuration
 
@@ -419,8 +443,8 @@ int serial_getc(void) {
 ### Makefile Organization
 
 Bare metal and hosted builds share:
-- Same fwc-vm.c/h source
-- Same fwc-boot.fth bootstrap
+- Same bmf-vm.c/h source
+- Same bmf-boot.fth bootstrap
 - Same top-level makefile
 
 Separated by:
@@ -444,7 +468,7 @@ CFLAGS_BARE = -m32 \
 Link order matters! Bootloader must be first:
 
 ```makefile
-kernel.elf: boot.o idt-asm.o ... idt.o kernel.o fwc-vm.o
+kernel.elf: boot.o idt-asm.o ... idt.o kernel.o bmf-vm.o
 	$(LD) $(LDFLAGS_BARE) \
 		boot.o \              # FIRST - bootloader entry
 		idt-asm.o \        # ISR stubs (referenced by IDT)
@@ -455,7 +479,7 @@ kernel.elf: boot.o idt-asm.o ... idt.o kernel.o fwc-vm.o
 		string.o \         # String functions
 		idt.o \            # IDT (uses ISR stubs)
 		kernel.o \                 # HAL
-		fwc-vm.o \                 # FWC VM
+		bmf-vm.o \                 # BMF VM
 		-o kernel.elf
 ```
 
@@ -519,7 +543,7 @@ gdb kernel.elf
 - **kernel.elf**: 31 KB on disk
 - **Runtime footprint**:
   - Kernel code/data: ~50 KB
-  - FWC VM (MEM_SZ): 16 MB
+  - BMF VM (MEM_SZ): 16 MB
   - Stack/stacks: ~1 MB
   - **Total**: ~17 MB in 512 MB QEMU VM
 
@@ -527,7 +551,7 @@ gdb kernel.elf
 
 - **Bootloader → kmain**: ~100 ms
 - **Driver init**: ~50 ms
-- **FWC init**: ~10 ms
+- **BMF init**: ~10 ms
 - **Ready for input**: ~200 ms
 
 ---
@@ -536,7 +560,7 @@ gdb kernel.elf
 
 ### Short-term
 1. Interrupt-driven serial input buffering
-2. Embedded fwc-boot.fth loading
+2. Embedded bmf-boot.fth loading
 3. REPL line editing
 
 ### Medium-term

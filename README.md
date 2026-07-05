@@ -1,211 +1,242 @@
-# BMF: a very minimal Word-Code Forth
+# 32-bit Bare Metal FORTH OS for QEMU
 
-BMF is a minimal Forth system that can run stand-alone or be embedded into another program.
+A minimal 32-bit x86 bare metal operating system kernel written entirely in **pure assembly (FASM)**, boots via GRUB multiboot, runs on QEMU. Foundation for a FORTH-based interpreter system.
 
-BMF is implemented in modular source files:
-- **Core VM:** `bmf-vm.c` and `bmf-vm.h` (Forth virtual machine, ~200 lines)
-- **Hardware Drivers:** `drivers.c` and `drivers.h` (consolidated: serial, timer, PIC, PS/2, IDT, string utilities)
-- **System Layer:** `system.c` (bare metal I/O, interrupt handling, REPL)
-- **Bootloader:** `boot.asm` and `linker.ld` (FASM, Multiboot-compliant)
-- **Interrupts:** `idt.asm` (FASM, ISR stubs and handlers)
+## Features
 
-BMF has 64 primitives, all implemented as a high-performance threaded code interpreter.
-The primitives are quite complete and any Forth system can be built from them.
-Bootstrap files `bmf-boot.fth` and `block-01.fth` provide higher-level vocabulary.
+- **Multiboot bootloader**: GRUB multiboot-compliant entry point at 0x100000
+- **32-bit x86 protected mode**: Full x86-32 architecture support
+- **Pure Assembly (FASM)**: Entire kernel in single `.asm` file (~2.5 KB object)
+- **VGA text console**: 80×25 text mode output (0xB8000)
+- **Serial output**: COM1 (0x3F8) for debugging/secondary output
+- **Interrupt system**: IDT + 8259 PIC with PS/2 keyboard handler
+- **PS/2 keyboard**: Ring buffer for scancode capture (IRQ1/INT 0x21)
+- **Memory layout**: 32 MB for FORTH (stacks, dictionary, graphics buffer)
+- **QEMU-ready**: Boots directly with `-kernel` flag, no ISO needed
 
-## Bare Metal 32-bit OS Mode
+## Quick Start
 
-BMF can also run as a **bare metal operating system** on 32-bit x86 QEMU or real hardware.
-See [BARE_METAL.md](BARE_METAL.md) for details on building and running the bare metal kernel.
-
-**Current Status**: ✅ Stable and deterministic - all interrupt-related non-determinism fixed, reliable interactive Forth execution verified.
-
-**Quick start:**
 ```bash
-make kernel.elf          # Build bare metal kernel (31 KB)
-make qemu-run            # Run in QEMU emulator
+# Prerequisites
+sudo apt-get install fasm qemu qemu-system-x86
+
+# Build and run
+cd /home/chris/code/nb
+make qemu
 ```
 
-In a BMF program, each instruction is a single CELL.
-- A CELL is either a QWord (64-bits), or a DWord (32-bits).
-- If <= the last primitive (system), then it is a primitive.
-- Else, if it is in the range from `0` to `LIT_MASK`, then it is a literal.
-- Else, it is the XT (code address) of a word in the dictionary.
+QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered and ready for FORTH interpreter.
 
-### STATES in BMF
-Setting `STATE` to 999 signals BMF to exit.
+## Project Structure
 
-### BMF hard-codes the following IMMEDIATE words:
-
-| Word | Behavior |
-|:--   |:-- |
-|  :   | Add the next word to the dictionary, set `STATE` to COMPILE (1). |
-|  ;   | Compile EXIT and change `STATE` to INTERPRET (0). |
-|  (   | Skips words until the next ')' word. |
-|  \\  | Skips words until the end next new-line character ($0A). |
-
-### ColorForth influences
-
-BMF will change the state depending on embedded bytes in the whitespace.<br/>
-NOTE: I cannot use '$00' for INTERPRET because that is the line terminator.<br/>
-
-| Byte | Behavior                      |
-|:--   |:--                            |
-| $01  | Set `STATE` to INTERPRET (0). |
-| $02  | Set `STATE` to COMPILE (1).   |
-
-## INLINE words
-
-An INLINE word is somewhat similar to a macro in other languages.<br/>
-When a word is INLINE, its definition is copied to the target, up to the first `EXIT`.<br/>
-When not INLINE, a call is made to the word instead.<br/>
-**NOTE**: if the next instruction is `EXIT`, it becomes a `JUMP` instead (the tail-call optimization).<br/>
-
-## Transient words
-
-Words 't0' through 't9' are transient and are not added to the dictionary.<br/>
-They are **case sensitive**; 't0' is a transient word, 'T0' is not.<br/>
-They help with factoring code and keep the dictionary uncluttered.<br/>
-They can be reused as many times as desired.
-
-## Built-in variables
-
-There are 3 built-in variables: `x`, `y`, and `z`.<br/>
-Use `+L` to create new versions of the variables.<br/>
-Use `-L` to destroy the most recently created variables.<br/>
-`+L` and `-L` can be used at any time for any reason.
-
-## Building BMF (Hosted Mode)
-
-### Linux
-There is a makefile for hosted builds (Linux/Windows targets).
-- **Default (64-bit):** `make`
-- **32-bit:** `BITS=32 make`
-- **Run:** `./bmf` or `make run`
-
-### Windows
-There is a .SLN file with configurations for 32-bit and 64-bit builds.
-
-### Bare Metal (32-bit QEMU/x86)
-For bare metal kernel building, see [BARE_METAL.md](BARE_METAL.md).
-
-## BMF Startup Behavior
-
-On startup, BMF does the following:
-- Create 'argc' with the count of command-line arguments.
-- For each argument, create 'argX' with the address of th1.e argument string
-- For example, `arg0 ztype` will print `bmf`.
-- If arg1 exists and names a file that can be opened, load that file.
-- Else, try to load file 'bmf-boot.fth' in the current folder.
-- Else, try to load file 'bmf-boot.fth' in the `BIN_DIR` folder.
-- On Linux, `BIN_DIR` is "/home/chris/bin/".
-- On Windows, `BIN_DIR` is "D:\\bin\\".
-- `BIN_DIR` is defined in bmf-vm.h. Adjust it in `bmf-vm.h` for your system as desired.
-
-**Note:** In bare metal mode, file I/O is not available. BMF runs from an embedded bootstrap in kernel memory.
-
-## The VM Primitives
-
-| Primitive | Op/Word  | Stack        | Description |
-|:--        |:--       |:--           |:-- |
-|   0       | exit     | (--)         | PC = R-TOS. Discard R-TOS. If (PC=0) then stop. |
-|   1       | lit      | (--)         | Push code[PC]. Increment PC. |
-|   2       | jmp      | (--)         | PC = code[PC]. |
-|   3       | jmpz     | (n--)        | If (n==0) then PC = code[PC] else PC = PC+1. |
-|   4       | jmpnz    | (n--)        | If (n!=0) then PC = code[PC] else PC = PC+1. |
-|   5       | njmpz    | (n--n)       | If (n==0) then PC = code[PC] else PC = PC+1. |
-|   6       | njmpnz   | (n--n)       | If (n!=0) then PC = code[PC] else PC = PC+1. |
-|   7       | dup      | (n--n n)     | Duplicate `n`. |
-|   8       | drop     | (n--)        | Discard `n`. |
-|   9       | swap     | (a b--b a)   | Swap `a` and `b`. |
-|  10       | over     | (a b--a b a) | Push `a`. |
-|  11       | !        | (n a--)      | CELL store `n` through `a`. |
-|  12       | @        | (a--n)       | CELL fetch `n` through `a`. |
-|  13       | c!       | (b a--)      | BYTE store `b` through `a`. |
-|  14       | c@       | (a--b)       | BYTE fetch `b` through `a`. |
-|  15       | >r       | (n--)        | Move `n` to the return stack. |
-|  16       | r@       | (--n)        | Copy `n` from the return stack. |
-|  17       | r>       | (--n)        | Move `n` from the return stack. |
-|  18       | +L       | (--)         | Create new versions of variables (x,y,z). |
-|  19       | -L       | (--)         | Restore the last set of variables. |
-|  20       | x!       | (n--)        | Set local variable X to `n`. |
-|  21       | y!       | (n--)        | Set local variable Y to `n`. |
-|  22       | z!       | (n--)        | Set local variable Z to `n`. |
-|  23       | x@       | (--n)        | Push local variable X. |
-|  24       | y@       | (--n)        | Push local variable Y. |
-|  25       | z@       | (--n)        | Push local variable Z. |
-|  26       | x@+      | (--n)        | Push local variable X, then increment it. |
-|  27       | y@+      | (--n)        | Push local variable Y, then increment it. |
-|  28       | z@+      | (--n)        | Push local variable Z, then increment it. |
-|  29       | *        | (a b--c)     | `c` = `a`*`b`. |
-|  30       | +        | (a b--c)     | `c` = `a`+`b`. |
-|  31       | -        | (a b--c)     | `c` = `a`-`b`. |
-|  32       | /mod     | (a b--r q)   | `q` = `a`/`b`. `r` = `a` modulo `b`. |
-|  33       | 1+       | (a--b)       | `b` = `a`+1. |
-|  34       | 1-       | (a--b)       | `b` = `a`-1. |
-|  35       | <        | (a b--f)     | If (`a`<`b`) then `f` = 1 else `f` = 0. |
-|  36       | =        | (a b--f)     | If (`a`=`b`) then `f` = 1 else `f` = 0. |
-|  37       | >        | (a b--f)     | If (`a`>`b`) then `f` = 1 else `f` = 0. |
-|  38       | 0=       | (n--f)       | If (n==0) then `f` = 1 else `f` = 0. |
-|  39       | min      | (a b--c)     | If (`a` < `b`) `c` = `a` else `b`. |
-|  40       | max      | (a b--c)     | If (`a` > `b`) `c` = `a` else `b`. |
-|  41       | +!       | (n a--)      | Add `n` to the cell at `a`. |
-|  42       | for      | (C--)        | Start a FOR loop starting at 0. Upper limit is `C`. |
-|  43       | i        | (--I)        | Push current loop index `I`. |
-|  44       | next     | (--)         | Increment I. If (I < C) then jump to loop start. |
-|  45       | and      | (a b--c)     | `c` = `a` and `b`. |
-|  46       | or       | (a b--c)     | `c` = `a` or  `b`. |
-|  47       | xor      | (a b--c)     | `c` = `a` xor `b`. |
-|  48       | ztype    | (a--)        | Output the null-terminated string `a`. |
-|  49       | find     | (--a)        | Push the dictionary address `a` of the next word. |
-|  50       | key      | (--n)        | Push the next keypress `n`. Wait if necessary. |
-|  51       | key?     | (--f)        | Push 1 if a keypress is available, else 0. |
-|  52       | emit     | (c--)        | Output char `c`. |
-|  53       | fopen    | (nm md--fh)  | Open file `nm` using mode `md` (`fh`=0 if error). |
-|  54       | fclose   | (fh--)       | Close file `fh`. |
-|  55       | fread    | (a sz fh--n) | Read `sz` chars from file `fh` to `a`. |
-|  56       | fwrite   | (a sz fh--n) | Write `sz` chars to file `fh` from `a`. |
-|  57       | ms       | (n--)        | Wait/sleep for `n` milliseconds |
-|  58       | timer    | (--n)        | Push the current system time `n`. |
-|  59       | add-word | (--)         | Add the next word to the dictionary. |
-|  60       | outer    | (str--)      | Run the outer interpreter on `str`. |
-|  61       | cmove    | (f t n--)    | Copy `n` bytes from `f` to `t`. |
-|  62       | s-len    | (str--n)     | Determine the length `n` of string `str`. |
-|  63       | system   | (str--)      | Execute system(`str`). |
-
-## Other built-in words
-
-| Word      | Stack | Description |
-|:--        |:--    |:-- |
-| version   | (--n) | Current version number. |
-| WINDOWS   | (--n) | If the system is Windows, 1 Else 0. |
-| LINUX     | (--n) | If the system is Linux, 1 Else 0. |
-| output-fp | (--a) | Address of the output file handle. 0 means STDOUT. |
-| (h)       | (--a) | Address of HERE. |
-| (l)       | (--a) | Address of LAST. |
-| (lsp)     | (--a) | Address of the loop stack pointer. |
-| lstk      | (--a) | Address of the loop stack. |
-| (rsp)     | (--a) | Address of the return stack pointer. |
-| rstk      | (--a) | Address of the return stack. |
-| (tsp)     | (--a) | Address of the x/y/z stack pointer. |
-| tstk      | (--a) | Address of the x/y/z stack. |
-| (sp)      | (--a) | Address of the data stack pointer. |
-| stk       | (--a) | Address of the data stack. |
-| state     | (--a) | Address of STATE. |
-| base      | (--a) | Address of BASE. |
-| mem       | (--a) | Address of the beginning of the memory area. |
-| mem-sz    | (--n) | The number of BYTEs in the memory area. |
-| >in       | (--a) | Address of the text input buffer pointer. |
-| de-sz     | (--n) | The size of a dictionary in bytes (32). |
-| cell      | (--n) | The size of a CELL in bytes (4 or 8). |
-
-##   Embedding BMF in your C or C++ project
-
-For **bare metal builds**, see [BARE_METAL.md](BARE_METAL.md).
-
-For **hosted mode** (Linux/Windows), modify `system.c` to provide the I/O primitives. The VM core files `bmf-vm.c/h` are portable and require only standard C library functions.
-#include "bmf-vm.h"
-// ... implement the functions bmf-vm.c needs
-bmfInit();
-outer(".\" Hello World!\"");
 ```
+.
+├── kernel.asm       # Bootloader + kernel + drivers (pure assembly)
+├── kernel.o         # Object file (1.9 KB)
+├── kernel.elf       # Executable (8.5 KB)
+├── linker.ld        # Memory layout script
+├── Makefile         # Build automation
+├── grub.cfg         # GRUB configuration (for ISO)
+└── README.md        # This file
+```
+
+## Building
+
+```bash
+make          # Full build
+make qemu     # Build and run in QEMU window
+make clean    # Remove artifacts
+```
+
+**Toolchain:**
+- FASM 1.73.30+ (assembler)
+- GNU ld (linker, elf_i386 format)
+
+## Memory Layout (32 MB)
+
+```
+0x01FFFFFF  ┌─────────────────────┐
+            │  Free space         │
+0x00700800  ├─────────────────────┤
+            │ Dictionary + Code   │ (grows UP, ~26 MB)
+            │ (mixed entries)     │
+            ├─────────────────────┤
+0x007FFC00  │ Data stack          │ (1 KB, grows down)
+            ├─────────────────────┤
+0x00600000  │ Graphics buffer     │ (4 MB, VESA 1280×1024@32-bit)
+            ├─────────────────────┤
+0x00200000  │ Kernel + data       │ (1 MB)
+            │ + ESP stack (16 KB) │
+0x00100000  └─────────────────────┘
+0x000B8000  └─ VGA text (4 KB, HW)
+```
+
+**Dictionary Entry Format:**
+```
+[Offset 0:3]   Link pointer to next entry (4 bytes)
+[Offset 4:4]   Flags/Length byte (1 byte)  
+[Offset 5:31]  Name, NULL-terminated (27 bytes max)
+[Offset 32:n]  Code pointer/inline code (variable)
+```
+
+## Kernel Components
+
+### Bootloader (_start)
+- Multiboot header validation
+- Stack setup (ESP → stack_top, 16 KB kernel stack)
+- Multiboot parameter preservation
+- Calls kernel_main
+
+### IDT & PIC (Interrupt Handling)
+- **IDT**: 256-entry interrupt descriptor table
+- **PIC**: Master/Slave programmable interrupt controller
+  - Maps IRQ0-7 → INT 0x20-0x27
+  - Maps IRQ8-15 → INT 0x28-0x2F
+  - IRQ1 (keyboard) enabled by default
+
+### VGA Driver
+- `kernel_clear()` - Clear screen, reset cursor
+- `vga_putchar(AL)` - Write char at cursor, advance, wrap
+- `vga_write(ESI)` - Write null-terminated string
+- Text mode: 80×25 @ 0xB8000
+
+### Serial Driver (COM1)
+- `ser_write(ESI)` - Write null-terminated string to serial port
+- Port: 0x3F8 (COM1)
+- Used for debugging output
+
+### PS/2 Keyboard
+- **Handler**: `keyboard_handler()` (INT 0x21/IRQ1)
+- **Ring buffer**: 32 scancodes, power-of-2 wrap with AND
+- **Reader**: `keyboard_read()` - Non-blocking, returns scancode or 0
+- **Data check**: `keyboard_has_data()` - Non-blocking, returns 1 if buffer has data
+- **Status check**: Port 0x64 bit 0 before reading 0x60
+- **Init**: Disables/re-enables controller, enables IRQ1
+
+### Utility Functions
+- `hex_to_string(EAX, ESI)` - Convert 32-bit to "0xXXXXXXXX"
+- `idt_set_entry(EAX, BL, CL)` - Configure IDT entry
+- `init_idt()` - Initialize IDT, load with LIDT
+- `init_pic()` - Configure PIC for IRQ remapping
+- `init_ps2()` - Initialize PS/2 keyboard hardware
+- `pic_enable_irq_1()` - Enable keyboard interrupt (clear PIC mask bit 1)
+- `keyboard_read()` - Non-blocking read from keyboard buffer
+- `keyboard_has_data()` - Check if keyboard buffer has pending scancodes
+
+### FORTH Dictionary & Primitives
+- **Dict pointer**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
+- **Entry format**: [Link(4)] [Flags/Len(1)] [Name(27)] [Code(variable)]
+- **Stack macros**:
+  - `dPush reg` - Push register onto data stack
+  - `dPop reg` - Pop from data stack into register
+  - `getTOS reg` - Read top of stack (non-destructive)
+  - `getNOS reg` - Read 2nd element (non-destructive)
+  - `setTOS reg` - Write top of stack
+  - `setNOS reg` - Write 2nd element
+
+**Implemented primitives:**
+- `DUP` - Duplicate top of stack (a → a a)
+- `DROP` - Remove top of stack (a b → a)
+- `KEY?` - Check if keyboard has data (→ 1|0)
+- `SWAP` - Exchange top two (a b → b a)
+
+## Running
+
+```bash
+# QEMU GUI window (recommended)
+make qemu
+
+# Or directly:
+qemu-system-i386 -kernel kernel.elf -m 32M
+
+# With serial output to terminal:
+qemu-system-i386 -kernel kernel.elf -m 32M -serial stdio
+```
+
+## Next Steps (FORTH Implementation)
+
+**Progress:**
+- ✅ Stack macros: dPush, dPop, getTOS, getNOS, setTOS, setNOS (EBP-based)
+- ✅ Dictionary infrastructure (linked list, case-insensitive lookup)
+- ✅ 4 core primitives: **DUP**, **DROP**, **KEY?**, **SWAP**
+- ⏳ ~60 more primitives needed (arithmetic, memory, control flow)
+
+**Roadmap for remaining FORTH:**
+
+1. **More stack primitives** - OVER, ROT, -ROT, DEPTH, PICK, ROLL
+2. **Arithmetic** - +, -, *, /, MOD, /MOD, ABS, MIN, MAX, NEGATE
+3. **Comparison** - <, >, =, <>, <=, >=, 0<, 0>, 0=
+4. **Memory access** - @, !, C@, C!, +!
+5. **Control flow** - IF, THEN, ELSE, BEGIN, UNTIL, LOOP, DO
+6. **FORTH I/O** - EMIT, KEY, CR, SPACES
+7. **Interpreter loop** - Token parsing, execute from dictionary
+8. **Word definition** - Colon definitions (: name ... ;)
+9. **Graphics** - PIXEL drawing using 4MB buffer
+10. **Optimizations** - JIT compilation, tail call optimization
+
+## Debug Commands
+
+```bash
+# Inspect binary
+file kernel.elf
+readelf -l kernel.elf        # Program headers
+readelf -S kernel.elf        # Section headers
+nm kernel.elf                 # Symbols
+
+# Disassemble
+objdump -d kernel.elf | less
+objdump -M intel -d kernel.elf  # Intel syntax
+
+# Check multiboot magic
+objdump -s -j .multiboot kernel.elf | head -5
+```
+
+## Known Limitations / TODOs
+
+- [ ] FORTH interpreter loop not yet implemented
+- [ ] No scancode→ASCII conversion (raw scancodes in buffer)
+- [ ] No timer interrupt (IRQ0)
+- [ ] Graphics buffer allocated but unused
+- [ ] No disk/filesystem support
+- [x] Stack abstraction (EBP-based data stack)
+- [x] Dictionary infrastructure
+- [x] Core primitives (DUP, DROP, KEY?, SWAP)
+
+## Architecture Notes
+
+**Why pure assembly?**
+- Total control over memory layout and execution
+- Minimal overhead (~2.5 KB object code!)
+- Single executable file, no dependencies
+- Perfect for bare metal + FORTH experimentation
+
+**Register conventions:**
+- EAX, EDX: Return values / scratch
+- ESI: String pointer (calls)
+- EBX, ECX: General purpose
+- ESP: Kernel stack (x86 stack calls/returns)
+- EBP: FORTH data stack pointer (grows downward, initialized to DATA_STK_BASE)
+
+**Calling convention:**
+- Functions use C-style: push/pop EBX, ECX, EDX, ESI, EDI
+- Return via RET (pops EIP)
+- No STDCALL (manual stack management)
+
+## Tools Used
+
+- **FASM** (v1.73.30) - Compact, elegant assembler
+- **GNU ld** - Linker with custom script
+- **QEMU** - Machine emulator (i386 mode)
+- **readelf/objdump** - ELF inspection
+
+## References
+
+- [OSDev.org Wiki](https://wiki.osdev.org/)
+- [Multiboot Specification](https://www.gnu.org/software/grub/manual/multiboot/)
+- [x86 Instruction Set](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-manual-combined-volumes-1-2a-2b-2c-2d.pdf)
+- [FASM Documentation](https://flatassembler.net/)
+- [FORTH Standards](https://forth-standard.org/)
+
+## License
+
+MIT License

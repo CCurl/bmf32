@@ -1,47 +1,32 @@
-/* Linker script for BMF bare metal 32-bit kernel
- * Positions kernel at 1MB (0x100000) standard QEMU/multiboot load address
- */
+/* Linker script for 32-bit bare metal kernel (pure assembly) */
 
-ENTRY(start)
+ENTRY(_start)
 
 SECTIONS
 {
-    . = 0x100000;       /* Load kernel at 1MB */
-    
-    __bootstart = .;
-    
-    .boot ALIGN(0x1000) : {
-        *(.boot)        /* Multiboot header */
-    }
+    . = 0x100000;
     
     .text ALIGN(0x1000) : {
-        *(.text)
-        *(.text.*)
+        *(.multiboot)
+        *(.text*)
     }
     
     .rodata ALIGN(0x1000) : {
-        *(.rodata)
-        *(.rodata.*)
+        *(.rodata*)
     }
     
     .data ALIGN(0x1000) : {
-        *(.data)
-        *(.data.*)
+        *(.data*)
     }
     
-    __bootend = .;
-    
     .bss ALIGN(0x1000) : {
-        __bss_start = .;
-        *(.bss)
-        *(.bss.*)
         *(COMMON)
-        __bss_end = .;
+        *(.bss*)
     }
     
     /DISCARD/ : {
         *(.note.GNU-stack)
         *(.gnu_debuglink)
-        *(.gnu_debugdata)
+        *(.gnu_debugaltlink)
     }
 }

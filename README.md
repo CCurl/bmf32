@@ -169,8 +169,7 @@ qemu-system-i386 -kernel kernel.elf -m 32M
 **Progress:**
 - ✅ Stack macros: dPush, dPop, getTOS, getNOS, setTOS, setNOS (EBP-based)
 - ✅ Dictionary infrastructure (linked list, case-insensitive lookup)
-- ✅ 4 core primitives: **DUP**, **DROP**, **KEY?**, **SWAP**
-- ⏳ ~60 more primitives needed (arithmetic, memory, control flow)
+- ⏳ Primitives (in orogress)
 
 **Roadmap for remaining FORTH:**
 
@@ -207,11 +206,10 @@ objdump -s -j .multiboot kernel.elf | head -5
 - [ ] FORTH interpreter loop not yet implemented
 - [ ] No scancode--ASCII conversion (raw scancodes in buffer)
 - [ ] Graphics buffer allocated but unused
-- [ ] No disk/filesystem support
+- [ ] No disk support
 - [x] Stack abstraction (EBP-based data stack)
 - [x] Dictionary infrastructure
-- [x] Core primitives (DUP, DROP, KEY?, SWAP)
-- [x] Timer interrupt (IRQ0) with tick counter
+- [ ] Core primitives (in progress)
 
 ## Architecture Notes
 
@@ -225,11 +223,10 @@ objdump -s -j .multiboot kernel.elf | head -5
 - EAX, EDX: Return values / scratch
 - ESI: String pointer (calls)
 - EBX, ECX: General purpose
-- ESP: Kernel stack (x86 stack calls/returns)
-- EBP: FORTH data stack pointer (grows downward, initialized to DATA_STK_BASE)
+- ESP: Kernel return stack (x86 stack calls/returns)
+- EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_BASE`)
 
 **Calling convention:**
-- Functions use C-style: push/pop EBX, ECX, EDX, ESI, EDI
 - Return via RET (pops EIP)
 - No STDCALL (manual stack management)
 

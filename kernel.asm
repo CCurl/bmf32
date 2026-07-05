@@ -133,6 +133,9 @@ keyboard_buffer: rb KEYBOARD_BUFFER_SIZE
 keyboard_head: dd 0             ; Write pointer
 keyboard_tail: dd 0             ; Read pointer
 
+; Timer interrupt counter
+timer_ticks: dd 0               ; Incremented on each timer interrupt (IRQ0)
+
 ; FORTH Dictionary pointers
 DICT_START = 0x00700800         ; Start of dictionary in memory
 HERE: dd DICT_START             ; Next free address (grows UP)
@@ -484,8 +487,8 @@ init_pic:
     mov al, ICW4
     out PIC_SLAVE_DATA, al
     
-    ; Mask all interrupts except keyboard (IRQ1)
-    mov al, 0xFD                ; 11111101 (enable IRQ1 only on master)
+    ; Mask all interrupts except timer (IRQ0) and keyboard (IRQ1)
+    mov al, 0xFC                ; 11111100 (enable IRQ0 and IRQ1 on master)
     out PIC_MASTER_DATA, al
     
     mov al, 0xFF                ; disable all slave interrupts
@@ -495,7 +498,7 @@ init_pic:
     pop eax
     ret
 
-; Initialize the IDT with default handlers
+; Initialize the IDT (Interrupt Descriptor Table) with default handlers
 init_idt:
     push eax
     push ebx
@@ -515,6 +518,12 @@ init_idt:
     cmp edx, ecx
     jl .init_idt_clear
     
+    ; Set timer handler (IRQ0 = INT 0x20)
+    mov eax, timer_handler
+    mov bl, 0x20                ; INT 0x20
+    mov cl, 0x8E                ; interrupt gate, present, ring 0
+    call idt_set_entry
+    
     ; Set keyboard handler (IRQ1 = INT 0x21)
     mov eax, keyboard_handler
     mov bl, KEYBOARD_INT
@@ -530,6 +539,23 @@ init_idt:
     pop ebx
     pop eax
     ret
+
+; Timer interrupt handler (IRQ0)
+; Increments timer_ticks counter
+timer_handler:
+    ; Save EAX
+    push eax
+    
+    ; Increment timer counter
+    inc dword [timer_ticks]
+    
+    ; Send EOI (End Of Interrupt) to master PIC
+    mov al, PIC_EOI
+    out PIC_MASTER_CMD, al
+    
+    ; Restore EAX and return
+    pop eax
+    iret
 
 ; Keyboard interrupt handler (IRQ1)
 ; Reads scancode, buffers it in ring buffer
@@ -630,24 +656,34 @@ init_ps2:
     pop eax
     ret
 
-; Enable IRQ1 (keyboard)
-; Reads current mask, clears bit 1, writes back
-pic_enable_irq_1:
-    push eax
+; Enable IRQ (parameterized)
+; Entry: AL = IRQ bit mask (0x01 for IRQ0, 0x02 for IRQ1, etc.)
+; Example: mov al, 0x01; call pic_enable_irq  (enables IRQ0)
+;          mov al, 0x02; call pic_enable_irq  (enables IRQ1)
+pic_enable_irq:
     push edx
+    
+    ; Save the bit mask to DL first
+    mov dl, al              ; DL = bit mask
     
     ; Read current mask from master PIC
     mov dx, PIC_MASTER_DATA
-    in al, dx
+    in al, dx               ; AL = current mask
     
-    ; Clear bit 1 (IRQ1) to enable keyboard
-    and al, 0xFD            ; 11111101 in binary (clears bit 1)
+    ; Invert the bit mask and AND with current mask to clear that bit
+    not dl                  ; DL = ~bit_mask (inverted)
+    and al, dl              ; AL = current_mask & ~bit_mask
     
     ; Write back
     out dx, al
     
     pop edx
-    pop eax
+    ret
+
+; Get current timer ticks (non-blocking)
+; Exit: EAX = number of timer ticks since boot
+timer_get_ticks:
+    mov eax, [timer_ticks]
     ret
 
 ; ============================================================================
@@ -771,98 +807,131 @@ dict_lookup:
 ; ============================================================================
 ; DICTIONARY ENTRIES - Core Primitives
 ; ============================================================================
+; Entry format: [Link(4)][XT(4)][Flags|Len(1)][Name(var)][NULL][Code]
+
+; CELL primitive - Push cell size onto stack
+; (-- cell-size)
+section '.data'
+dict_cell:
+    dd 0                    ; Link: 0 (no previous entry)
+    dd dict_cell_XT         ; XT: execution token (code address)
+    db 0x04                 ; Flags|Len: immediate=0, length=4
+    db "CELL", 0            ; Name: "CELL" with NULL
+dict_cell_XT:
+    mov eax, 4              ; Cell size is 4 bytes
+    dPush eax               ; Push cell size onto stack
+    ret
 
 ; DUP primitive - Duplicate top of stack
-; Entry format: [Link(4)][XT(4)][Flags|Len(1)][Name(var)][NULL][Code]
-section '.data'
+; (a -- a a)
 dict_dup:
-    dd 0                    ; Link: 0 (no previous entry)
-    dd dict_dup_code        ; XT: execution token (code address)
+    dd dict_cell            ; Link
+    dd dict_dup_XT          ; XT: execution token (code address)
     db 0x03                 ; Flags|Len: immediate=0, length=3
     db "DUP", 0             ; Name: "DUP" with NULL
-dict_dup_code:
+dict_dup_XT:
     getTOS eax              ; Read top of stack
     dPush eax               ; Push duplicate
     ret
 
 ; DROP primitive - Remove top of stack
-; Entry format: [Link(4)][XT(4)][Flags|Len(1)][Name(var)][NULL][Code]
+; (a b -- a)
 dict_drop:
     dd dict_dup             ; Link: points to DUP (previous entry)
-    dd dict_drop_code       ; XT: execution token (code address)
+    dd dict_drop_XT         ; XT: execution token (code address)
     db 0x04                 ; Flags|Len: immediate=0, length=4
     db "DROP", 0            ; Name: "DROP" with NULL
-dict_drop_code:
+dict_drop_XT:
     dPop eax                ; Pop and discard top of stack
     ret
 
 ; KEY? primitive - Check if keyboard buffer has data
 ; Returns 1 (true) or 0 (false) on data stack
-dict_key_question:
+; (-- flag)
+dict_keyq:
     dd dict_drop            ; Link: points to DROP (previous entry)
-    dd dict_key_question_code ; XT: execution token (code address)
+    dd dict_keyq_XT         ; XT: execution token (code address)
     db 0x04                 ; Flags|Len: immediate=0, length=4
     db "KEY?", 0            ; Name: "KEY?" with NULL
-dict_key_question_code:
+dict_keyq_XT:
     call keyboard_has_data  ; AL = 1 if data, 0 if empty
     movzx eax, al           ; Zero-extend to 32-bit
     dPush eax               ; Push result (1 or 0) onto stack
     ret
 
 ; SWAP primitive - Exchange top two stack elements
-; a b SWAP → b a
+; (a b -- b a)
 dict_swap:
-    dd dict_key_question    ; Link: points to KEY? (previous entry)
-    dd dict_swap_code       ; XT: execution token (code address)
+    dd dict_keyq            ; Link: points to KEY? (previous entry)
+    dd dict_swap_XT         ; XT: execution token (code address)
     db 0x04                 ; Flags|Len: immediate=0, length=4
     db "SWAP", 0            ; Name: "SWAP" with NULL
-dict_swap_code:
+dict_swap_XT:
     getTOS eax              ; eax = a (TOS)
     getNOS ebx              ; ebx = b (NOS)
     setNOS eax              ; write a to 2nd
     setTOS ebx              ; write b to TOS
     ret
 
-; Bootstrap dictionary with core primitives
-; Populates dictionary with basic FORTH words
-bootstrap_dictionary:
-    ; Initialize LAST to point to SWAP (most recently defined word)
-    mov dword [LAST], dict_swap
-    ; TODO: Add more primitives (+, -, *, /, etc.)
+; TIMER primitive - Get the current TIMER value
+; (-- ticks)
+dict_timer:
+    dd dict_swap            ; Link: points to SWAP (previous entry)
+    dd dict_timer_XT        ; XT: execution token (code address)
+    db 0x05                 ; Flags|Len: immediate=0, length=5
+    db "TIMER", 0           ; Name: "TIMER" with NULL
+dict_timer_XT:
+    call timer_get_ticks    ; EAX = timer ticks
+    dPush eax               ; Push timer ticks onto stack
     ret
+
+; ADD primitive - Add top two stack elements
+; (a b -- sum)
+dict_add:
+    dd dict_timer           ; Link: points to TIMER (previous entry)
+    dd dict_add_XT          ; XT: execution token (code address)
+    db 0x01                 ; Flags|Len: immediate=0, length=1
+    db "+", 0               ; Name: "+" with NULL
+dict_add_XT:
+    dPop ebx                ; ebx = a (TOS)
+    getTOS eax              ; eax = b (NOS)
+    add eax, ebx            ; a + b
+    setTOS eax              ; write result to TOS
+    ret
+
+; TODO: Add more primitives (+, -, *, /, etc.)
 
 ; ============================================================================
 ; SECTION: MAIN KERNEL FUNCTION
 ; ============================================================================
 
 kernel_main:
-    ; Initialize interrupt system
-    call init_idt
-    call init_pic
+    call init_idt            ; Initialize interrupt system
+    call init_pic            ; Initialize PIC
     call init_ps2            ; Initialize PS/2 keyboard hardware
-    call pic_enable_irq_1    ; Enable keyboard interrupt (IRQ1)
+    
+    mov al, 0x01             ; Enable IRQ0 (timer) - bit 0
+    call pic_enable_irq
+    
+    mov al, 0x02             ; Enable IRQ1 (keyboard) - bit 1
+    call pic_enable_irq
+    
     sti                      ; Enable interrupts
     
-    ; Initialize serial port (before any serial output)
-    call init_serial
+    ; Initialize other stuff
+    mov ebp, DATA_STK_BASE   ; Data stack pointer (EBP)
+    call init_serial         ; Serial port
     
-    ; Initialize data stack pointer (EBP)
-    mov ebp, DATA_STK_BASE
-    
-    ; Initialize FORTH dictionary
-    call bootstrap_dictionary
-    
-    ; Clear VGA screen
-    call kernel_clear
-    
-    ; Print startup message
-    mov esi, msg_started
+    ; Set LAST to the last defined word
+    mov dword [LAST], dict_add 
+
+    call kernel_clear        ; Clear VGA screen
+    mov esi, msg_started     ; Print startup message
     call vga_ser_write
     
-    ; Print magic number
-    mov esi, msg_magic
+    mov esi, msg_magic       ; Print magic number
     call vga_ser_write
-    
+
     ; Load and display the multiboot magic number
     mov eax, [multiboot_magic]
     mov esi, hex_buffer
@@ -870,11 +939,11 @@ kernel_main:
     call hex_to_string
     mov esi, hex_buffer
     call vga_ser_write
-    
+
     ; Print completion message
     mov esi, msg_complete
     call vga_ser_write
-    
+
     ; Halt the CPU
 .kernel_halt:
     cli

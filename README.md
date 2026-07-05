@@ -1,10 +1,9 @@
 # 32-bit Bare Metal FORTH OS for QEMU
 
-A minimal 32-bit x86 bare metal operating system kernel written entirely in **pure assembly (FASM)**, boots via GRUB multiboot, runs on QEMU. Foundation for a FORTH-based interpreter system.
+A minimal 32-bit x86 bare metal operating system kernel written entirely in **pure assembly (FASM)**, boots directly in QEMU. Foundation for a FORTH-based interpreter system.
 
 ## Features
 
-- **Multiboot bootloader**: GRUB multiboot-compliant entry point at 0x100000
 - **32-bit x86 protected mode**: Full x86-32 architecture support
 - **Pure Assembly (FASM)**: Entire kernel in single `.asm` file (~2.5 KB object)
 - **VGA text console**: 80×25 text mode output (0xB8000)
@@ -12,7 +11,7 @@ A minimal 32-bit x86 bare metal operating system kernel written entirely in **pu
 - **Interrupt system**: IDT + 8259 PIC with PS/2 keyboard handler
 - **PS/2 keyboard**: Ring buffer for scancode capture (IRQ1/INT 0x21)
 - **Memory layout**: 32 MB for FORTH (stacks, dictionary, graphics buffer)
-- **QEMU-ready**: Boots directly with `-kernel` flag, no ISO needed
+- **Direct kernel loading**: Boots with QEMU `-kernel` flag
 
 ## Quick Start
 
@@ -20,9 +19,11 @@ A minimal 32-bit x86 bare metal operating system kernel written entirely in **pu
 # Prerequisites
 sudo apt-get install fasm qemu qemu-system-x86
 
+# Clone the repository
+git clone https://github.com/CCurl/bmf32.git
+
 # Build and run
-cd /home/chris/code/nb
-make qemu
+make run
 ```
 
 QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered and ready for FORTH interpreter.
@@ -31,12 +32,11 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 
 ```
 .
-├── kernel.asm       # Bootloader + kernel + drivers (pure assembly)
-├── kernel.o         # Object file (1.9 KB)
-├── kernel.elf       # Executable (8.5 KB)
+├── kernel.asm       # Bootloader + kernel + drivers
+├── kernel.o         # Object file
+├── kernel.elf       # Kernel as an xxecutable
 ├── linker.ld        # Memory layout script
 ├── Makefile         # Build automation
-├── grub.cfg         # GRUB configuration (for ISO)
 └── README.md        # This file
 ```
 
@@ -44,8 +44,8 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 
 ```bash
 make          # Full build
-make qemu     # Build and run in QEMU window
 make clean    # Remove artifacts
+make run      # Build and run in QEMU window
 ```
 
 **Toolchain:**
@@ -58,7 +58,7 @@ make clean    # Remove artifacts
 0x01FFFFFF  ┌─────────────────────┐
             │  Free space         │
 0x00700800  ├─────────────────────┤
-            │ Dictionary + Code   │ (grows UP, ~26 MB)
+            │ Dictionary + Code   │ (grows UP, ~15 MB)
             │ (mixed entries)     │
             ├─────────────────────┤
 0x007FFC00  │ Data stack          │ (1 KB, grows down)
@@ -74,29 +74,28 @@ make clean    # Remove artifacts
 **Dictionary Entry Format:**
 ```
 [Offset 0:3]   Link pointer to next entry (4 bytes)
-[Offset 4:4]   Flags/Length byte (1 byte)  
-[Offset 5:31]  Name, NULL-terminated (27 bytes max)
-[Offset 32:n]  Code pointer/inline code (variable)
+[Offset 4:7]   Execution Token (XT) (4 bytes)
+[Offset 8:8]   Flags/Length byte (1 byte)  
+[Offset 9:n]   Name, NULL-terminated (variable length)
+[Offset n+1:m] Inline code (XT, variable size)
 ```
 
 ## Kernel Components
 
 ### Bootloader (_start)
-- Multiboot header validation
-- Stack setup (ESP → stack_top, 16 KB kernel stack)
-- Multiboot parameter preservation
+- Stack setup (ESP -- stack_top, 16 KB kernel stack)
 - Calls kernel_main
 
 ### IDT & PIC (Interrupt Handling)
 - **IDT**: 256-entry interrupt descriptor table
 - **PIC**: Master/Slave programmable interrupt controller
-  - Maps IRQ0-7 → INT 0x20-0x27
-  - Maps IRQ8-15 → INT 0x28-0x2F
+  - Maps IRQ0-7 -- INT 0x20-0x27
+  - Maps IRQ8-15 -- INT 0x28-0x2F
   - IRQ1 (keyboard) enabled by default
 
 ### VGA Driver
 - `kernel_clear()` - Clear screen, reset cursor
-- `vga_putchar(AL)` - Write char at cursor, advance, wrap
+- `vga_putchar(AL)` - Write char at cursor, advance, wrap, scroll
 - `vga_write(ESI)` - Write null-terminated string
 - Text mode: 80×25 @ 0xB8000
 
@@ -104,6 +103,12 @@ make clean    # Remove artifacts
 - `ser_write(ESI)` - Write null-terminated string to serial port
 - Port: 0x3F8 (COM1)
 - Used for debugging output
+
+### Timer (IRQ0)
+- **Handler**: `timer_handler()` (INT 0x20/IRQ0)
+- **Counter**: `timer_ticks` - Incremented on each timer tick
+- **Reader**: `timer_get_ticks()` - Non-blocking, returns current tick count
+- **Init**: IRQ0 enabled by default, PIC configured
 
 ### PS/2 Keyboard
 - **Handler**: `keyboard_handler()` (INT 0x21/IRQ1)
@@ -119,13 +124,14 @@ make clean    # Remove artifacts
 - `init_idt()` - Initialize IDT, load with LIDT
 - `init_pic()` - Configure PIC for IRQ remapping
 - `init_ps2()` - Initialize PS/2 keyboard hardware
-- `pic_enable_irq_1()` - Enable keyboard interrupt (clear PIC mask bit 1)
+- `pic_enable_irq(AL)` - Enable timer interrupt (clear PIC mask bit AL)
+- `timer_get_ticks()` - Read current timer tick count
 - `keyboard_read()` - Non-blocking read from keyboard buffer
 - `keyboard_has_data()` - Check if keyboard buffer has pending scancodes
 
 ### FORTH Dictionary & Primitives
 - **Dict pointer**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
-- **Entry format**: [Link(4)] [Flags/Len(1)] [Name(27)] [Code(variable)]
+- **Entry format**: [Link(4)] [XT(4)] [Flags/Len(1)] [Name(variable)] [NULL] [Code]
 - **Stack macros**:
   - `dPush reg` - Push register onto data stack
   - `dPop reg` - Pop from data stack into register
@@ -135,22 +141,27 @@ make clean    # Remove artifacts
   - `setNOS reg` - Write 2nd element
 
 **Implemented primitives:**
-- `DUP` - Duplicate top of stack (a → a a)
-- `DROP` - Remove top of stack (a b → a)
-- `KEY?` - Check if keyboard has data (→ 1|0)
-- `SWAP` - Exchange top two (a b → b a)
+| Name  | Stack        |
+|:--    |:--           |
+| CELL  | (-- 4)       |
+| DUP   | (a -- a a)   |
+| DROP  | (a b -- a)   |
+| KEY?  | (-- 1|0)     |
+| SWAP  | (a b -- b a) |
+| TIMER | (-- n)       |
+| +     | (a b -- sum) |
 
 ## Running
 
 ```bash
-# QEMU GUI window (recommended)
+# Build and run (serial output to terminal)
 make qemu
 
 # Or directly:
-qemu-system-i386 -kernel kernel.elf -m 32M
-
-# With serial output to terminal:
 qemu-system-i386 -kernel kernel.elf -m 32M -serial stdio
+
+# Without serial output:
+qemu-system-i386 -kernel kernel.elf -m 32M
 ```
 
 ## Next Steps (FORTH Implementation)
@@ -194,13 +205,13 @@ objdump -s -j .multiboot kernel.elf | head -5
 ## Known Limitations / TODOs
 
 - [ ] FORTH interpreter loop not yet implemented
-- [ ] No scancode→ASCII conversion (raw scancodes in buffer)
-- [ ] No timer interrupt (IRQ0)
+- [ ] No scancode--ASCII conversion (raw scancodes in buffer)
 - [ ] Graphics buffer allocated but unused
 - [ ] No disk/filesystem support
 - [x] Stack abstraction (EBP-based data stack)
 - [x] Dictionary infrastructure
 - [x] Core primitives (DUP, DROP, KEY?, SWAP)
+- [x] Timer interrupt (IRQ0) with tick counter
 
 ## Architecture Notes
 

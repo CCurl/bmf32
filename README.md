@@ -1,6 +1,8 @@
-# 32-bit Bare Metal FORTH OS for QEMU
+# A 32-bit Bare Metal FORTH OS/Kernel
 
-A minimal 32-bit x86 bare metal operating system kernel written entirely in **pure assembly (FASM)**, boots directly in QEMU. Foundation for a FORTH-based interpreter system.
+A minimal 32-bit x86 bare metal operating system kernel written entirely in **pure assembly (FASM)**.<br/>
+This is intended to be a foundation for a subroutine threaded FORTH system.<br/>
+Currently runs under QEMU (the 32-bit x86 emulator) using the `-kernel` option.
 
 ## Features
 
@@ -33,8 +35,6 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 ```
 .
 ├── kernel.asm       # Bootloader + kernel + drivers
-├── kernel.o         # Object file
-├── kernel.elf       # Kernel as an xxecutable
 ├── linker.ld        # Memory layout script
 ├── Makefile         # Build automation
 └── README.md        # This file
@@ -73,7 +73,7 @@ make run      # Build and run in QEMU window
 
 **Dictionary Entry Format:**
 ```
-[Offset 0:3]   Link pointer to next entry (4 bytes)
+[Offset 0:3]   Link pointer to previous entry (4 bytes)
 [Offset 4:7]   Execution Token (XT) (4 bytes)
 [Offset 8:8]   Flags/Length byte (1 byte)  
 [Offset 9:n]   Name, NULL-terminated (variable length)
@@ -223,7 +223,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 - EAX, EDX: Return values / scratch
 - ESI: String pointer (calls)
 - EBX, ECX: General purpose
-- ESP: Kernel return stack (x86 stack calls/returns)
+- ESP: Return stack (Forth and x86 stack calls/returns)
 - EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_BASE`)
 
 **Calling convention:**

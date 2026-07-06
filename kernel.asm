@@ -735,171 +735,166 @@ hex_to_string:
 ; ============================================================================
 
 ; Dictionary lookup - find a word by name
-; Entry: ESI = pointer to name string (null-terminated), CL = string length
-; Exit: EBX = address of dictionary entry (or 0 if not found)
+; Entry: ESI = pointer to name string
+;        CL = string length
+; Exit: EAX = address of dictionary entry (or 0 if not found)
+; NOTE: Overwrites EAX, EBX, ECX, EDI
 dict_lookup:
-    push eax
-    push ecx
-    push edx
-    
-    mov ebx, [LAST]         ; Start at most recently defined word
+    push ecx                ; Save length on stack
+    mov eax, [LAST]         ; Start at most recently defined word
     
 .search_loop:
-    cmp ebx, 0              ; End of dictionary?
+    cmp eax, 0              ; End of dictionary?
     je .lookup_not_found
     
-    ; Check length first: compare CL with bottom 5 bits of flags/len byte at [ebx + 8]
-    mov al, [ebx + 8]       ; Flags|Len byte
-    and al, 0x1F            ; Extract length (bottom 5 bits)
-    cmp al, cl              ; Compare lengths
+    ; Check length first: compare CL with length byte at [eax + 9]
+    pop ecx                 ; Restore length into CL
+    push ecx                ; Save length
+    mov bl, [eax + 9]       ; Length byte
+    cmp bl, cl              ; Compare lengths
     jne .name_no_match      ; Length mismatch, try next entry
     
-    ; Length matches, now compare name: [ebx + 9] is the name field
-    mov eax, ebx
-    add eax, 9              ; Point to name in entry
-    mov edx, esi            ; EDX is our search string pointer (preserve ESI on stack)
+    ; Length matches, now compare name: [eax + 10] is the name field
+    mov ebx, eax
+    add ebx, 10             ; Point to name in entry
+    mov edi, esi            ; EDI is our search string pointer
     
 .name_compare:
-    mov al, [eax]           ; Byte from dictionary entry name
-    mov cl, [edx]           ; Byte from search string
+    mov dl, [ebx]           ; DL = dict char
+    mov cl, [edi]           ; CL = search char
     
-    ; Convert both to uppercase for case-insensitive comparison
-    cmp al, 'a'
-    jl .al_ok
-    cmp al, 'z'
-    jg .al_ok
-    sub al, 32              ; Convert to uppercase
-.al_ok:
+    ; Convert dict char (DL)
+    cmp dl, 'a'
+    jl .skip_dict_upper
+    cmp dl, 'z'
+    jg .skip_dict_upper
+    sub dl, 32              ; Convert to uppercase
+.skip_dict_upper:
+    
+    ; Convert search char (CL)
     cmp cl, 'a'
-    jl .cl_ok
+    jl .skip_search_upper
     cmp cl, 'z'
-    jg .cl_ok
+    jg .skip_search_upper
     sub cl, 32              ; Convert to uppercase
-.cl_ok:
+.skip_search_upper:
     
-    cmp al, cl
+    cmp dl, cl
     jne .name_no_match      ; Bytes don't match
     
-    test al, al             ; Check for null terminator (both should match)
+    test dl, dl             ; Check for null terminator
     je .lookup_found
     
-    inc eax
-    inc edx
+    inc edi
+    inc ebx
     jmp .name_compare
     
 .name_no_match:
-    mov ebx, [ebx]          ; Follow link to previous entry
+    mov eax, [eax]          ; Follow link to previous entry
     jmp .search_loop
     
 .lookup_found:
-    pop edx
+    ; EAX already contains the address of the found entry
     pop ecx
-    pop eax
     ret
     
 .lookup_not_found:
-    xor ebx, ebx            ; Return 0 (not found)
-    pop edx
+    xor eax, eax            ; Return 0 (not found)
     pop ecx
-    pop eax
     ret
 
 ; ============================================================================
-; DICTIONARY ENTRIES - Core Primitives
+; DICTIONARY ENTRIES - Primitives
 ; ============================================================================
-; Entry format: [Link(4)][XT(4)][Flags|Len(1)][Name(var)][NULL][Code]
+section '.data'
+; Entry format: [Link(4)][XT(4)][Flags(1)][Len(1)][Name(var)][NULL][Code]
 
 ; CELL primitive - Push cell size onto stack
 ; (-- cell-size)
-section '.data'
 dict_cell:
-    dd 0                    ; Link: 0 (no previous entry)
-    dd dict_cell_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "CELL", 0            ; Name: "CELL" with NULL
-dict_cell_XT:
+    dd 0, XT_cell           ; Link and XT
+    db 0, 0x04, "CELL", 0   ; Flags, Len, Name
+XT_cell:
     mov eax, 4              ; Cell size is 4 bytes
-    dPush eax               ; Push cell size onto stack
+    dPush eax
     ret
 
 ; DUP primitive - Duplicate top of stack
 ; (a -- a a)
 dict_dup:
-    dd dict_cell            ; Link
-    dd dict_dup_XT          ; XT: execution token (code address)
-    db 0x03                 ; Flags|Len: immediate=0, length=3
-    db "DUP", 0             ; Name: "DUP" with NULL
-dict_dup_XT:
-    getTOS eax              ; Read top of stack
-    dPush eax               ; Push duplicate
+    dd dict_cell, XT_dup    ; Link and XT
+    db 0, 0x03, "DUP", 0    ; Flags, Len, Name
+XT_dup:
+    getTOS eax
+    dPush eax
     ret
 
 ; DROP primitive - Remove top of stack
 ; (a b -- a)
 dict_drop:
-    dd dict_dup             ; Link: points to DUP (previous entry)
-    dd dict_drop_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "DROP", 0            ; Name: "DROP" with NULL
-dict_drop_XT:
-    dPop eax                ; Pop and discard top of stack
+    dd dict_dup, XT_drop    ; Link and XT
+    db 0, 0x04, "DROP", 0   ; Flags, Len, Name
+XT_drop:
+    dPop eax
     ret
 
 ; KEY? primitive - Check if keyboard buffer has data
 ; Returns 1 (true) or 0 (false) on data stack
 ; (-- flag)
 dict_keyq:
-    dd dict_drop            ; Link: points to DROP (previous entry)
-    dd dict_keyq_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "KEY?", 0            ; Name: "KEY?" with NULL
-dict_keyq_XT:
-    call keyboard_has_data  ; AL = 1 if data, 0 if empty
-    movzx eax, al           ; Zero-extend to 32-bit
-    dPush eax               ; Push result (1 or 0) onto stack
+    dd dict_drop, XT_keyq   ; Link and XT
+    db 0, 0x04, "KEY?", 0   ; Flags, Len, Name
+XT_keyq:
+    call keyboard_has_data  ; Sets AL = 1 if data available, else 0
+    movzx eax, al           ; Zero-extend AL to EAX
+    dPush eax
     ret
 
 ; SWAP primitive - Exchange top two stack elements
 ; (a b -- b a)
 dict_swap:
-    dd dict_keyq            ; Link: points to KEY? (previous entry)
-    dd dict_swap_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "SWAP", 0            ; Name: "SWAP" with NULL
-dict_swap_XT:
-    getTOS eax              ; eax = a (TOS)
-    getNOS ebx              ; ebx = b (NOS)
-    setNOS eax              ; write a to 2nd
-    setTOS ebx              ; write b to TOS
+    dd dict_keyq, XT_swap   ; Link and XT
+    db 0, 0x04, "SWAP", 0   ; Flags, Len, Name
+XT_swap:
+    getTOS eax
+    getNOS ebx
+    setTOS ebx
+    setNOS eax
+    ret
+
+; OVER primitive - push NOS
+; (a b -- a b a)
+dict_over:
+    dd dict_swap, XT_over   ; Link and XT
+    db 0, 0x04, "OVER", 0   ; Flags, Len, Name
+XT_over:
+    getNOS eax
+    dPush eax
     ret
 
 ; TIMER primitive - Get the current TIMER value
 ; (-- ticks)
 dict_timer:
-    dd dict_swap            ; Link: points to SWAP (previous entry)
-    dd dict_timer_XT        ; XT: execution token (code address)
-    db 0x05                 ; Flags|Len: immediate=0, length=5
-    db "TIMER", 0           ; Name: "TIMER" with NULL
-dict_timer_XT:
-    call timer_get_ticks    ; EAX = timer ticks
-    dPush eax               ; Push timer ticks onto stack
+    dd dict_over, XT_timer  ; Link and XT
+    db 0, 0x05, "TIMER", 0  ; Flags, Len, Name
+XT_timer:
+    call timer_get_ticks
+    dPush eax
     ret
 
 ; ADD primitive - Add top two stack elements
 ; (a b -- sum)
 dict_add:
-    dd dict_timer           ; Link: points to TIMER (previous entry)
-    dd dict_add_XT          ; XT: execution token (code address)
-    db 0x01                 ; Flags|Len: immediate=0, length=1
-    db "+", 0               ; Name: "+" with NULL
-dict_add_XT:
-    dPop ebx                ; ebx = a (TOS)
-    getTOS eax              ; eax = b (NOS)
-    add eax, ebx            ; a + b
-    setTOS eax              ; write result to TOS
+    dd dict_timer, XT_add   ; Link and XT
+    db 0, 0x01, "+", 0      ; Flags, Len, Name
+XT_add:
+    dPop ebx
+    getTOS eax
+    add eax, ebx
+    setTOS eax
     ret
 
-; TODO: Add more primitives (+, -, *, /, etc.)
+; TODO: Add more primitives
 
 ; ============================================================================
 ; SECTION: MAIN KERNEL FUNCTION

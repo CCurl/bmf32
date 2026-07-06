@@ -144,12 +144,6 @@ make run      # Build and run in QEMU window
 | Name  | Stack        |
 |:--    |:--           |
 | CELL  | (-- 4)       |
-| DUP   | (a -- a a)   |
-| DROP  | (a b -- a)   |
-| KEY?  | (-- 1|0)     |
-| SWAP  | (a b -- b a) |
-| TIMER | (-- n)       |
-| +     | (a b -- sum) |
 
 ## Running
 
@@ -167,9 +161,9 @@ qemu-system-i386 -kernel kernel.elf -m 32M
 ## Next Steps (FORTH Implementation)
 
 **Progress:**
-- ✅ Stack macros: dPush, dPop, getTOS, getNOS, setTOS, setNOS (EBP-based)
-- ✅ Dictionary infrastructure (linked list, case-insensitive lookup)
-- ⏳ Primitives (in orogress)
+- [x] Stack macros: dPush, dPop, getTOS, getNOS, setTOS, setNOS (EBP-based)
+- [x] Dictionary infrastructure (linked list, case-insensitive lookup)
+- [ ] Primitives (in progress)
 
 **Roadmap for remaining FORTH:**
 
@@ -203,12 +197,12 @@ objdump -s -j .multiboot kernel.elf | head -5
 
 ## Known Limitations / TODOs
 
+- [x] Stack abstraction (EBP-based data stack)
+- [x] Dictionary infrastructure
 - [ ] FORTH interpreter loop not yet implemented
 - [ ] No scancode--ASCII conversion (raw scancodes in buffer)
 - [ ] Graphics buffer allocated but unused
 - [ ] No disk support
-- [x] Stack abstraction (EBP-based data stack)
-- [x] Dictionary infrastructure
 - [ ] Core primitives (in progress)
 
 ## Architecture Notes

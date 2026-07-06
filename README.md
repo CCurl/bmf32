@@ -57,8 +57,7 @@ make run      # Build and run in QEMU window
 ```
 0x01FFFFFF  ┌─────────────────────┐
             │  Free space         │
-0x00700800  ├─────────────────────┤
-            │ Dictionary + Code   │ (grows UP, ~15 MB)
+0x00700800  │ Dictionary + Code   │ (grows UP, ~15 MB)
             │ (mixed entries)     │
             ├─────────────────────┤
 0x007FFC00  │ Data stack          │ (1 KB, grows down)
@@ -67,16 +66,20 @@ make run      # Build and run in QEMU window
             ├─────────────────────┤
 0x00200000  │ Kernel + data       │ (1 MB)
             │ + ESP stack (16 KB) │
-0x00100000  └─────────────────────┘
-0x000B8000  └─ VGA text (4 KB, HW)
+            ├─────────────────────┤
+0x00100000  │ VGA text (4 KB, HW) │
+0x000B8000  ├─────────────────────┤
+            │ Reserved / BIOS     │
+0x00000000  └─────────────────────┘
 ```
 
 **Dictionary Entry Format:**
 ```
 [Offset 0:3]   Link pointer to previous entry (4 bytes)
 [Offset 4:7]   Execution Token (XT) (4 bytes)
-[Offset 8:8]   Flags/Length byte (1 byte)  
-[Offset 9:n]   Name, NULL-terminated (variable length)
+[Offset 8:8]   Flags (1 byte)  
+[Offset 9:9]   Length (1 byte)  
+[Offset 10:n]  Name, NULL-terminated (variable length)
 [Offset n+1:m] Inline code (XT, variable size)
 ```
 
@@ -139,17 +142,6 @@ make run      # Build and run in QEMU window
   - `getNOS reg` - Read 2nd element (non-destructive)
   - `setTOS reg` - Write top of stack
   - `setNOS reg` - Write 2nd element
-
-**Implemented primitives:**
-| Name  | Stack        |
-|:--    |:--           |
-| CELL  | (-- 4)       |
-| DUP   | (a -- a a)   |
-| DROP  | (a b -- a)   |
-| KEY?  | (-- 1|0)     |
-| SWAP  | (a b -- b a) |
-| TIMER | (-- n)       |
-| +     | (a b -- sum) |
 
 ## Running
 
@@ -214,6 +206,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 ## Architecture Notes
 
 **Why pure assembly?**
+- No dependency on a 3rd party compiler
 - Total control over memory layout and execution
 - Minimal overhead (~2.5 KB object code!)
 - Single executable file, no dependencies
@@ -232,7 +225,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 
 ## Tools Used
 
-- **FASM** (v1.73.30) - Compact, elegant assembler
+- **FASM** (v1.73.30) - Compact, elegant, open-source assembler
 - **GNU ld** - Linker with custom script
 - **QEMU** - Machine emulator (i386 mode)
 - **readelf/objdump** - ELF inspection

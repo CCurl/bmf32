@@ -30,17 +30,16 @@ SERIAL_PORT = 0x3F8
 ;
 ;   Dictionary + Code (grow UP from DICT_START, mixed entries)
 ;   Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
-; 0x00700800
+; Starts at 0x00700800
 ;
 ;   Data stack (1 KB, grows DOWN) 
-; 0x007FFC00
+; Starts at 0x007FFC00
 ;
 ;   Graphics buffer (4 MB, 1280×1024@32-bit)
-; 0x00200000
+; Starts at 0x00200000
 ;
 ;   Kernel code + data + kernel stack (16 KB, ESP points here)
-; 0x00100000
-; 0x00000000
+; Starts at 0x00100000
 
 ; Kernel entry point (GRUB multiboot)
 KERNEL_START  = 0x00100000
@@ -136,10 +135,12 @@ keyboard_tail: dd 0             ; Read pointer
 ; Timer interrupt counter
 timer_ticks: dd 0               ; Incremented on each timer interrupt (IRQ0)
 
-; FORTH Dictionary pointers
+; FORTH variables
 DICT_START = 0x00700800         ; Start of dictionary in memory
 HERE: dd DICT_START             ; Next free address (grows UP)
 LAST: dd 0                      ; Most recent word (0 initially, will point to last defined)
+BASE: dd 10                     ; Number base (default 10)
+STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
 
 ; Note: EBP = data stack pointer (grows downward)
 
@@ -151,7 +152,7 @@ idt: rb IDT_SIZE * IDT_ENTRY_SIZE
 section '.data'
 idtr:
     dw IDT_SIZE * IDT_ENTRY_SIZE - 1  ; limit (size - 1)
-    dd idt                             ; base address
+    dd idt                            ; base address
 
 ; ============================================================================
 ; SECTION: BOOT & INITIALIZATION
@@ -254,7 +255,7 @@ scroll_screen:
 ; Write single character to VGA at cursor position
 ; Entry: AL = character
 ; Exit: cursor advanced, wraps to next line
-vga_putchar:
+vga_emit:
     push eax
     push ebx
     push ecx
@@ -317,7 +318,7 @@ vga_write:
     test al, al             ; check for null terminator
     jz .write_done
     
-    call vga_putchar
+    call vga_emit
     jmp .write_loop
     
 .write_done:
@@ -359,12 +360,23 @@ init_serial:
     pop eax
     ret
 
+; Write char in AL to serial port (COM1)
+; Entry: AL = character to send
+; Exit: character sent to serial port
+ser_emit:
+    push edx
+    mov dx, SERIAL_PORT
+    out dx, al
+    pop edx
+    ret
+
 ; Write null-terminated string to serial port (COM1)
 ; Entry: ESI = pointer to string
 ; Exit: string sent to serial port
 ser_write:
     push eax
     push edx
+    push esi
     
     mov dx, SERIAL_PORT
 .ser_write_loop:
@@ -376,6 +388,7 @@ ser_write:
     jmp .ser_write_loop
 
 .ser_write_done:
+    pop esi
     pop edx
     pop eax
     ret
@@ -385,6 +398,13 @@ ser_write:
 vga_ser_write:
     call vga_write
     call ser_write
+    ret
+
+; EMIT a char to both VGA and serial port (COM1)
+; Entry: AL = character to send
+vga_ser_emit:
+    call vga_emit
+    call ser_emit
     ret
 
 ; ============================================================================
@@ -730,6 +750,15 @@ hex_to_string:
     pop eax
     ret
 
+; numq - Check if string is a number and convert to integer
+; Entry: ESI = pointer to string
+; Exit: EAX = 1 if valid number, 0 if not
+;       EDX = parsed integer (if valid)
+numq:
+    xor eax, eax            ; EAX = 0 (valid flag)
+    xor edx, edx            ; EDX = 0 (parsed number)
+    ret                     ; TODO: Fill this in
+
 ; ============================================================================
 ; SECTION: FORTH DICTIONARY & LOOKUP
 ; ============================================================================
@@ -738,7 +767,7 @@ hex_to_string:
 ; Entry: ESI = pointer to name string
 ;        CL = string length
 ; Exit: EAX = address of dictionary entry (or 0 if not found)
-; NOTE: Overwrites EAX, EBX, ECX, EDI
+; NOTE: Overwrites EAX, EBX, EDX, EDI
 dict_lookup:
     push ecx                ; Save length on stack
     mov eax, [LAST]         ; Start at most recently defined word
@@ -748,8 +777,7 @@ dict_lookup:
     je .lookup_not_found
     
     ; Check length first: compare CL with length byte at [eax + 9]
-    pop ecx                 ; Restore length into CL
-    push ecx                ; Save length
+    mov cl, [esp]           ; Restore length into CL
     mov bl, [eax + 9]       ; Length byte
     cmp bl, cl              ; Compare lengths
     jne .name_no_match      ; Length mismatch, try next entry
@@ -793,26 +821,21 @@ dict_lookup:
     mov eax, [eax]          ; Follow link to previous entry
     jmp .search_loop
     
-.lookup_found:
-    ; EAX already contains the address of the found entry
-    pop ecx
+.lookup_found:              ; EAX already contains 0 (not found)
+.lookup_not_found:          ; EAX already contains the entry address
+    pop ecx                 ; Clean up stack
     ret
     
-.lookup_not_found:
-    xor eax, eax            ; Return 0 (not found)
-    pop ecx
-    ret
-
 ; ============================================================================
 ; DICTIONARY ENTRIES - Primitives
 ; ============================================================================
 section '.data'
-; Entry format: [Link(4)][XT(4)][Flags(1)][Len(1)][Name(var)][NULL][Code]
+; Entry format: [Link:0-3][XT:4-7][Flags:8][Len:9][Name:10][NULL][Code]
 
 ; CELL primitive - Push cell size onto stack
 ; (-- cell-size)
 dict_cell:
-    dd 0, XT_cell           ; Link and XT
+    dd 0, XT_cell           ; Link, XT
     db 0, 0x04, "CELL", 0   ; Flags, Len, Name
 XT_cell:
     mov eax, 4              ; Cell size is 4 bytes
@@ -822,7 +845,7 @@ XT_cell:
 ; DUP primitive - Duplicate top of stack
 ; (a -- a a)
 dict_dup:
-    dd dict_cell, XT_dup    ; Link and XT
+    dd dict_cell, XT_dup    ; Link, XT
     db 0, 0x03, "DUP", 0    ; Flags, Len, Name
 XT_dup:
     getTOS eax
@@ -832,7 +855,7 @@ XT_dup:
 ; DROP primitive - Remove top of stack
 ; (a b -- a)
 dict_drop:
-    dd dict_dup, XT_drop    ; Link and XT
+    dd dict_dup, XT_drop    ; Link, XT
     db 0, 0x04, "DROP", 0   ; Flags, Len, Name
 XT_drop:
     dPop eax
@@ -842,7 +865,7 @@ XT_drop:
 ; Returns 1 (true) or 0 (false) on data stack
 ; (-- flag)
 dict_keyq:
-    dd dict_drop, XT_keyq   ; Link and XT
+    dd dict_drop, XT_keyq   ; Link, XT
     db 0, 0x04, "KEY?", 0   ; Flags, Len, Name
 XT_keyq:
     call keyboard_has_data  ; Sets AL = 1 if data available, else 0
@@ -853,7 +876,7 @@ XT_keyq:
 ; SWAP primitive - Exchange top two stack elements
 ; (a b -- b a)
 dict_swap:
-    dd dict_keyq, XT_swap   ; Link and XT
+    dd dict_keyq, XT_swap   ; Link, XT
     db 0, 0x04, "SWAP", 0   ; Flags, Len, Name
 XT_swap:
     getTOS eax
@@ -865,7 +888,7 @@ XT_swap:
 ; OVER primitive - push NOS
 ; (a b -- a b a)
 dict_over:
-    dd dict_swap, XT_over   ; Link and XT
+    dd dict_swap, XT_over   ; Link, XT
     db 0, 0x04, "OVER", 0   ; Flags, Len, Name
 XT_over:
     getNOS eax
@@ -875,7 +898,7 @@ XT_over:
 ; TIMER primitive - Get the current TIMER value
 ; (-- ticks)
 dict_timer:
-    dd dict_over, XT_timer  ; Link and XT
+    dd dict_over, XT_timer  ; Link, XT
     db 0, 0x05, "TIMER", 0  ; Flags, Len, Name
 XT_timer:
     call timer_get_ticks
@@ -885,13 +908,97 @@ XT_timer:
 ; ADD primitive - Add top two stack elements
 ; (a b -- sum)
 dict_add:
-    dd dict_timer, XT_add   ; Link and XT
+    dd dict_timer, XT_add   ; Link, XT
     db 0, 0x01, "+", 0      ; Flags, Len, Name
 XT_add:
     dPop ebx
     getTOS eax
     add eax, ebx
     setTOS eax
+    ret
+
+; SUB primitive - Subtract top two stack elements
+; (a b -- diff)
+dict_sub:
+    dd dict_add, XT_sub     ; Link, XT
+    db 0, 0x01, "-", 0      ; Flags, Len, Name
+XT_sub:
+    dPop ebx
+    getTOS eax
+    sub eax, ebx
+    setTOS eax
+    ret
+
+; MULT primitive - Multiply top two stack elements
+; (a b -- product)
+dict_mult:
+    dd dict_sub, XT_mult    ; Link, XT
+    db 0, 0x01, "*", 0      ; Flags, Len, Name
+XT_mult:
+    dPop ebx
+    getTOS eax
+    imul eax, ebx
+    setTOS eax
+    ret
+
+; DIV primitive - Divide top two stack elements
+; (a b -- quotient)
+dict_div:
+    dd dict_mult, XT_div    ; Link, XT
+    db 0, 0x01, "/", 0      ; Flags, Len, Name
+XT_div:
+    dPop ebx
+    getTOS eax
+    cdq                     ; Sign-extend EAX into EDX:EAX
+    idiv ebx
+    setTOS eax
+    ret
+
+; NUMBER? primitive - Check if string is a number
+; (str -- (num 1) | 0 )
+dict_numq:
+    dd dict_div, XT_numq    ; Link, XT
+    db 0, 7, "NUMBER?", 0   ; Flags, Len, Name
+XT_numq:
+    dPop esi
+    call numq               ; Check if string in ESI is a number
+    test eax, eax           ; EAX: 1 (true) or 0 (false)
+    jz .numq_exit
+    dPush edx               ; The parsed number will be in EDX
+.numq_exit:
+    dPush eax
+    ret
+
+; EMIT primitive - Output character on TOS
+; (ch -- )
+dict_emit:
+    dd dict_numq, XT_emit   ; Link, XT
+    db 0, 0x04, "EMIT", 0   ; Flags, Len, Name
+XT_emit:
+    dPop eax
+    call vga_ser_emit
+    ret
+
+; WORDS primitive - output the words in the dictionary
+; ( -- )
+dict_words:
+    dd dict_emit, XT_words   ; Link, XT
+    db 0, 0x05, "WORDS", 0  ; Flags, Len, Name
+XT_words:
+    mov eax, [LAST]         ; Start at most recently defined word
+.words_loop:
+    cmp eax, 0              ; End of dictionary?
+    je .words_done
+    push eax                ; Print the word name
+    mov esi, eax            ; Set ESI: word name address
+    add esi, 10
+    call vga_ser_write
+    mov al, 32              ; Space
+    call vga_ser_emit
+    pop eax
+    mov eax, [eax]          ; Next word in dictionary
+    jmp .words_loop
+.words_done:
     ret
 
 ; TODO: Add more primitives
@@ -918,7 +1025,9 @@ kernel_main:
     call init_serial         ; Serial port
     
     ; Set LAST to the last defined word
-    mov dword [LAST], dict_add 
+    mov dword [LAST], dict_words
+    mov dword [BASE], 10
+    mov dword [STATE], 0
 
     call kernel_clear        ; Clear VGA screen
     mov esi, msg_started     ; Print startup message
@@ -934,6 +1043,13 @@ kernel_main:
     call hex_to_string
     mov esi, hex_buffer
     call vga_ser_write
+
+    mov al, 10
+    call vga_ser_emit
+    call vga_ser_emit
+    call XT_words            ; Print dictionary words
+    mov al, 10
+    call vga_ser_emit
 
     ; Print completion message
     mov esi, msg_complete

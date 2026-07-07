@@ -37,6 +37,7 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 ├── kernel.asm       # Bootloader + kernel + drivers
 ├── linker.ld        # Memory layout script
 ├── Makefile         # Build automation
+├── LICENSE          # License (MIT)
 └── README.md        # This file
 ```
 

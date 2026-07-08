@@ -1,6 +1,8 @@
-# 32-bit Bare Metal FORTH OS for QEMU
+# A 32-bit Bare Metal FORTH OS/Kernel
 
-A minimal 32-bit x86 bare metal operating system kernel written entirely in **pure assembly (FASM)**, boots directly in QEMU. Foundation for a FORTH-based interpreter system.
+A minimal 32-bit x86 bare metal operating system kernel written entirely in **pure assembly (FASM)**.<br/>
+This is intended to be a foundation for a subroutine threaded FORTH system.<br/>
+Currently runs under QEMU (the 32-bit x86 emulator) using the `-kernel` option.
 
 ## Features
 
@@ -33,10 +35,9 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 ```
 .
 ├── kernel.asm       # Bootloader + kernel + drivers
-├── kernel.o         # Object file
-├── kernel.elf       # Kernel as an xxecutable
 ├── linker.ld        # Memory layout script
 ├── Makefile         # Build automation
+├── LICENSE          # License (MIT)
 └── README.md        # This file
 ```
 
@@ -57,8 +58,7 @@ make run      # Build and run in QEMU window
 ```
 0x01FFFFFF  ┌─────────────────────┐
             │  Free space         │
-0x00700800  ├─────────────────────┤
-            │ Dictionary + Code   │ (grows UP, ~15 MB)
+0x00700800  │ Dictionary + Code   │ (grows UP, ~15 MB)
             │ (mixed entries)     │
             ├─────────────────────┤
 0x007FFC00  │ Data stack          │ (1 KB, grows down)
@@ -67,16 +67,20 @@ make run      # Build and run in QEMU window
             ├─────────────────────┤
 0x00200000  │ Kernel + data       │ (1 MB)
             │ + ESP stack (16 KB) │
-0x00100000  └─────────────────────┘
-0x000B8000  └─ VGA text (4 KB, HW)
+            ├─────────────────────┤
+0x00100000  │ VGA text (4 KB, HW) │
+0x000B8000  ├─────────────────────┤
+            │ Reserved / BIOS     │
+0x00000000  └─────────────────────┘
 ```
 
 **Dictionary Entry Format:**
 ```
-[Offset 0:3]   Link pointer to next entry (4 bytes)
+[Offset 0:3]   Link pointer to previous entry (4 bytes)
 [Offset 4:7]   Execution Token (XT) (4 bytes)
-[Offset 8:8]   Flags/Length byte (1 byte)  
-[Offset 9:n]   Name, NULL-terminated (variable length)
+[Offset 8:8]   Flags (1 byte)  
+[Offset 9:9]   Length (1 byte)  
+[Offset 10:n]  Name, NULL-terminated (variable length)
 [Offset n+1:m] Inline code (XT, variable size)
 ```
 
@@ -139,11 +143,6 @@ make run      # Build and run in QEMU window
   - `getNOS reg` - Read 2nd element (non-destructive)
   - `setTOS reg` - Write top of stack
   - `setNOS reg` - Write 2nd element
-
-**Implemented primitives:**
-| Name  | Stack        |
-|:--    |:--           |
-| CELL  | (-- 4)       |
 
 ## Running
 
@@ -208,6 +207,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 ## Architecture Notes
 
 **Why pure assembly?**
+- No dependency on a 3rd party compiler
 - Total control over memory layout and execution
 - Minimal overhead (~2.5 KB object code!)
 - Single executable file, no dependencies
@@ -217,7 +217,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 - EAX, EDX: Return values / scratch
 - ESI: String pointer (calls)
 - EBX, ECX: General purpose
-- ESP: Kernel return stack (x86 stack calls/returns)
+- ESP: Return stack (Forth and x86 stack calls/returns)
 - EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_BASE`)
 
 **Calling convention:**
@@ -226,7 +226,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 
 ## Tools Used
 
-- **FASM** (v1.73.30) - Compact, elegant assembler
+- **FASM** (v1.73.30) - Compact, elegant, open-source assembler
 - **GNU ld** - Linker with custom script
 - **QEMU** - Machine emulator (i386 mode)
 - **readelf/objdump** - ELF inspection

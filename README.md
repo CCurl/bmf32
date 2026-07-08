@@ -7,7 +7,7 @@ Currently runs under QEMU (the 32-bit x86 emulator) using the `-kernel` option.
 ## Features
 
 - **32-bit x86 protected mode**: Full x86-32 architecture support
-- **Pure Assembly (FASM)**: Entire kernel in single `.asm` file (~5.6 KB object)
+- **Pure Assembly (FASM)**: Entire kernel in single `.asm` file
 - **VGA text console**: 80×25 text mode output (0xB8000)
 - **Serial output**: COM1 (0x3F8) for debugging/secondary output
 - **Interrupt system**: IDT + 8259 PIC with PS/2 keyboard handler
@@ -79,30 +79,6 @@ make run      # Build and run in QEMU window
 [Offset 10:n]  Name, NULL-terminated (variable length)
 [Offset n+1:m] Inline code (XT, variable size)
 ```
-
-## Implemented Primitives
-
-**Stack Manipulation:**
-- [x] CELL - Push cell size (4)
-- [x] DUP - Duplicate TOS
-- [x] DROP - Remove TOS
-- [x] SWAP - Exchange TOS and NOS
-- [x] OVER - Copy NOS to TOS
-
-**Arithmetic:**
-- [x] + (ADD) - Add TOS and NOS
-- [x] - (SUB) - Subtract TOS from NOS
-- [x] * (MULT) - Multiply TOS and NOS
-- [x] / (DIV) - Signed divide NOS by TOS
-
-**I/O & Utility:**
-- [x] EMIT - Output character (to VGA + serial)
-- [x] KEY? - Check if keyboard buffer has data
-- [x] TIMER - Get current timer tick count
-- [x] WORDS - List all dictionary words
-- [x] NUMBER? - Parse string to integer ($hex, %binary, #decimal, 'char', -negative)
-- [x] C, - Store byte at HERE, increment by 1
-- [x] , - Store cell at HERE, increment by 4
 
 ## Kernel Components
 
@@ -249,7 +225,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 **Why pure assembly?**
 - No dependency on a 3rd party compiler
 - Total control over memory layout and execution
-- Minimal overhead (~2.5 KB object code!)
+- Minimal overhead (very small kernel!)
 - Single executable file, no dependencies
 - Perfect for bare metal + FORTH experimentation
 

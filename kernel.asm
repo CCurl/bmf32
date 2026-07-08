@@ -28,12 +28,12 @@ SERIAL_PORT = 0x3F8
 ; ============================================================================
 ; 0x01FFFFFF  Free space
 ;
-;   Dictionary + Code (grow UP from DICT_START, mixed entries)
+;   Dictionary (grows UP from DICT_START, code + data)
 ;   Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
-; Starts at 0x00700800
+; Starts at 0x00600200
 ;
 ;   Data stack (1 KB, grows DOWN) 
-; Starts at 0x007FFC00
+; Starts at 0x00600100
 ;
 ;   Graphics buffer (4 MB, 1280×1024@32-bit)
 ; Starts at 0x00200000
@@ -48,13 +48,11 @@ KERNEL_START  = 0x00100000
 GRAPHICS_START = 0x00200000
 GRAPHICS_SIZE  = 0x00400000  ; 4 MB
 
-; Data stack (1 KB, grows downward, will use memory)
-DATA_STK_BASE = 0x007FFC00
-DATA_STK_SIZE = 0x00000400  ; 1 KB (256 entries × 4 bytes)
+; Data stack (grows downward from here)
+DATA_STK_BASE = 0x00600100
 
-; Dictionary + Code (grows upward from here, mixed entries)
-DICT_START    = 0x00700800
-DICT_SIZE     = 0x00F00000  ; ~15 MB available for dictionary+code
+; Dictionary + Code (grows upward from here, code and data)
+DICT_START    = 0x00600200
 
 ; Note: ESP (kernel stack) remains in kernel .bss section (16 KB)
 
@@ -136,7 +134,6 @@ keyboard_tail: dd 0             ; Read pointer
 timer_ticks: dd 0               ; Incremented on each timer interrupt (IRQ0)
 
 ; FORTH variables
-DICT_START = 0x00700800         ; Start of dictionary in memory
 HERE: dd DICT_START             ; Next free address (grows UP)
 LAST: dd 0                      ; Most recent word (0 initially, will point to last defined)
 BASE: dd 10                     ; Number base (default 10)
@@ -753,11 +750,153 @@ hex_to_string:
 ; numq - Check if string is a number and convert to integer
 ; Entry: ESI = pointer to string
 ; Exit: EAX = 1 if valid number, 0 if not
-;       EDX = parsed integer (if valid)
+;       Pushes parsed integer to data stack if valid
 numq:
-    xor eax, eax            ; EAX = 0 (valid flag)
-    xor edx, edx            ; EDX = 0 (parsed number)
-    ret                     ; TODO: Fill this in
+    push ebx
+    push ecx
+    push edx
+    push edi
+    
+    ; Check for char literal: 'c' format
+    mov al, [esi]
+    cmp al, 39              ; 39 = ' (single quote)
+    jne .numq_check_prefix
+    
+    mov al, [esi + 2]
+    cmp al, 39              ; Check closing quote
+    jne .numq_check_prefix
+    
+    mov al, [esi + 3]
+    cmp al, 0               ; Check null terminator
+    jne .numq_check_prefix
+    
+    ; Valid char literal: push the character value
+    mov al, [esi + 1]
+    movzx eax, al           ; Zero-extend AL to EAX
+    dPush eax
+    mov eax, 1              ; Return success
+    jmp .numq_return
+    
+.numq_check_prefix:
+    cmp al, 0
+    je .numq_fail           ; Empty string, fail
+
+    ; Load base (default from BASE variable)
+    mov ebx, [BASE]         ; EBX = base
+    xor edx, edx            ; EDX = 0 (1 => isNeg)
+    
+    ; Check for % prefix (binary)
+    cmp al, '%'
+    jne .numq_check_hash
+    mov ebx, 2
+    inc esi
+    jmp .numq_parse_start   ; No negative sign for binary
+    
+.numq_check_hash:
+    ; Check for # prefix (decimal)
+    cmp al, '#'
+    jne .numq_check_dollar
+    mov ebx, 10
+    inc esi
+    jmp .numq_check_minus   ; Decimal allows negative sign
+    
+.numq_check_dollar:
+    ; Check for $ prefix (hex)
+    cmp al, '$'
+    jne .numq_check_minus
+    mov ebx, 16
+    inc esi
+    jmp .numq_parse_start   ; No negative sign check for hex
+    
+.numq_check_minus:
+    ; Check for minus sign (only if base == 10)
+    cmp ebx, 10
+    jne .numq_parse_start
+    
+    mov al, [esi]
+    cmp al, '-'
+    jne .numq_parse_start
+    mov edx, 1              ; Set negative flag
+    inc esi
+    
+.numq_parse_start:
+    ; Check if string is empty after prefix/minus
+    mov al, [esi]
+    cmp al, 0
+    je .numq_fail
+    
+    ; Initialize accumulator
+    xor ecx, ecx            ; ECX = accumulated number
+    
+.numq_loop:
+    mov al, [esi]
+    cmp al, 0
+    je .numq_done
+    
+    ; Convert uppercase to lowercase
+    cmp al, 'A'
+    jl .numq_char_ok
+    cmp al, 'Z'
+    jg .numq_char_ok
+    add al, 32              ; Convert to lowercase
+    
+.numq_char_ok:
+    ; Convert char to digit value (0-9 or 10-15 for a-f)
+    xor edi, edi            ; EDI = digit value
+    
+    ; Try 0-9
+    cmp al, '0'
+    jl .numq_fail
+    cmp al, '9'
+    jg .numq_try_letters
+    
+    sub al, '0'
+    movzx edi, al
+    jmp .numq_check_range
+    
+.numq_try_letters:
+    ; Try a-f
+    cmp al, 'a'
+    jl .numq_fail
+    cmp al, 'f'
+    jg .numq_fail
+    
+    sub al, 'a'
+    add al, 10
+    movzx edi, al
+    
+.numq_check_range:
+    ; Check if digit < base
+    cmp edi, ebx
+    jge .numq_fail
+    
+    ; Accumulate: n = n*base + digit
+    imul ecx, ebx           ; ECX = ECX * base
+    add ecx, edi            ; ECX = ECX + digit
+    
+    inc esi
+    jmp .numq_loop
+    
+.numq_done:
+    ; Apply sign if needed
+    test edx, edx
+    jz .numq_push_result
+    neg ecx
+    
+.numq_push_result:
+    dPush ecx
+    mov eax, 1
+    jmp .numq_return
+    
+.numq_fail:
+    xor eax, eax
+    
+.numq_return:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
 
 ; ============================================================================
 ; SECTION: FORTH DICTIONARY & LOOKUP
@@ -962,11 +1101,7 @@ dict_numq:
 XT_numq:
     dPop esi
     call numq               ; Check if string in ESI is a number
-    test eax, eax           ; EAX: 1 (true) or 0 (false)
-    jz .numq_exit
-    dPush edx               ; The parsed number will be in EDX
-.numq_exit:
-    dPush eax
+    dPush eax               ; numq pushes the parsed number if valid
     ret
 
 ; EMIT primitive - Output character on TOS
@@ -979,10 +1114,34 @@ XT_emit:
     call vga_ser_emit
     ret
 
+; COMMA primitive - store TOS value at HERE, increment HERE by 4
+; ( N-- )
+dict_comma:
+    dd dict_emit, XT_comma  ; Link, XT
+    db 0, 0x01, ",", 0      ; Flags, Len, Name
+XT_comma:
+    dPop eax
+    mov edx, [HERE]         ; Get current HERE address
+    mov [edx], eax          ; Store TOS value at HERE
+    add dword [HERE], 4     ; Increment HERE by 4 (cell size)
+    ret
+
+; CCOMMA primitive - store TOS byte at HERE, increment HERE by 1
+; ( B-- )
+dict_ccomma:
+    dd dict_comma, XT_ccomma ; Link, XT
+    db 0, 0x02, "C,", 0      ; Flags, Len, Name
+XT_ccomma:
+    dPop eax
+    mov edx, [HERE]          ; Get current HERE address
+    mov [edx], al            ; Store TOS byte at HERE
+    add dword [HERE], 1      ; Increment HERE by 1 (byte size)
+    ret
+
 ; WORDS primitive - output the words in the dictionary
 ; ( -- )
 dict_words:
-    dd dict_emit, XT_words   ; Link, XT
+    dd dict_ccomma, XT_words ; Link, XT
     db 0, 0x05, "WORDS", 0  ; Flags, Len, Name
 XT_words:
     mov eax, [LAST]         ; Start at most recently defined word
@@ -1051,9 +1210,266 @@ kernel_main:
     mov al, 10
     call vga_ser_emit
 
+    ; Test numq function
+    mov esi, msg_test
+    call vga_ser_write
+    
+    ; Test 1: 'A' (char literal)
+    mov esi, test_str_1
+    call vga_ser_write
+    call numq
+    test eax, eax
+    jz .test_1_fail
+    dPop eax
+    mov esi, hex_buffer
+    mov ecx, 8
+    call hex_to_string
+    mov esi, msg_test_pass
+    call vga_ser_write
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    jmp .test_2
+.test_1_fail:
+    mov esi, msg_test_fail
+    call vga_ser_write
+    
+.test_2:
+    ; Test 2: $FF (hex)
+    mov esi, test_str_2
+    call vga_ser_write
+    call numq
+    test eax, eax
+    jz .test_2_fail
+    dPop eax
+    mov esi, hex_buffer
+    mov ecx, 8
+    call hex_to_string
+    mov esi, msg_test_pass
+    call vga_ser_write
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    jmp .test_3
+.test_2_fail:
+    mov esi, msg_test_fail
+    call vga_ser_write
+    
+.test_3:
+    ; Test 3: %1010 (binary)
+    mov esi, test_str_3
+    call vga_ser_write
+    call numq
+    test eax, eax
+    jz .test_3_fail
+    dPop eax
+    mov esi, hex_buffer
+    mov ecx, 8
+    call hex_to_string
+    mov esi, msg_test_pass
+    call vga_ser_write
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    jmp .test_4
+.test_3_fail:
+    mov esi, msg_test_fail
+    call vga_ser_write
+    
+.test_4:
+    ; Test 4: #42 (decimal)
+    mov esi, test_str_4
+    call vga_ser_write
+    call numq
+    test eax, eax
+    jz .test_4_fail
+    dPop eax
+    mov esi, hex_buffer
+    mov ecx, 8
+    call hex_to_string
+    mov esi, msg_test_pass
+    call vga_ser_write
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    jmp .test_5
+.test_4_fail:
+    mov esi, msg_test_fail
+    call vga_ser_write
+    
+.test_5:
+    ; Test 5: -99 (negative)
+    mov esi, test_str_5
+    call vga_ser_write
+    call numq
+    test eax, eax
+    jz .test_5_fail
+    dPop eax
+    mov esi, hex_buffer
+    mov ecx, 8
+    call hex_to_string
+    mov esi, msg_test_pass
+    call vga_ser_write
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    jmp .test_6
+.test_5_fail:
+    mov esi, msg_test_fail
+    call vga_ser_write
+    
+.test_6:
+    ; Test 6: 0 (zero)
+    mov esi, test_str_6
+    call vga_ser_write
+    call numq
+    test eax, eax
+    jz .test_6_fail
+    dPop eax
+    mov esi, hex_buffer
+    mov ecx, 8
+    call hex_to_string
+    mov esi, msg_test_pass
+    call vga_ser_write
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    jmp .test_7
+.test_6_fail:
+    mov esi, msg_test_fail
+    call vga_ser_write
+    
+.test_7:
+    ; Test 7: #XYZ (invalid)
+    mov esi, test_str_7
+    call vga_ser_write
+    call numq
+    test eax, eax
+    jnz .test_7_fail
+    mov esi, msg_test_fail
+    call vga_ser_write
+    jmp .tests_done
+.test_7_fail:
+    mov esi, msg_test_pass
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    
+.tests_done:
     ; Print completion message
     mov esi, msg_complete
     call vga_ser_write
+    
+    ; Test dict_lookup function
+    mov esi, msg_dict_test
+    call vga_ser_write
+    
+    ; Test 1: Look up "DUP"
+    mov esi, lookup_str_1
+    call vga_ser_write
+    mov esi, lookup_str_1
+    mov cl, 3               ; "DUP" length
+    call dict_lookup
+    test eax, eax
+    jz .dict_test_1_fail
+    mov esi, msg_dict_found
+    call vga_ser_write
+    mov ecx, eax
+    mov esi, hex_buffer
+    mov eax, ecx
+    mov ecx, 8
+    call hex_to_string
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    jmp .dict_test_2
+.dict_test_1_fail:
+    mov esi, msg_dict_notfound
+    call vga_ser_write
+    
+.dict_test_2:
+    ; Test 2: Look up "dup" (case-insensitive)
+    mov esi, lookup_str_2
+    call vga_ser_write
+    mov esi, lookup_str_2
+    mov cl, 3               ; "dup" length
+    call dict_lookup
+    test eax, eax
+    jz .dict_test_2_fail
+    mov esi, msg_dict_found
+    call vga_ser_write
+    mov ecx, eax
+    mov esi, hex_buffer
+    mov eax, ecx
+    mov ecx, 8
+    call hex_to_string
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    jmp .dict_test_3
+.dict_test_2_fail:
+    mov esi, msg_dict_notfound
+    call vga_ser_write
+    
+.dict_test_3:
+    ; Test 3: Look up "SWAP"
+    mov esi, lookup_str_3
+    call vga_ser_write
+    mov esi, lookup_str_3
+    mov cl, 4               ; "SWAP" length
+    call dict_lookup
+    test eax, eax
+    jz .dict_test_3_fail
+    mov esi, msg_dict_found
+    call vga_ser_write
+    mov ecx, eax
+    mov esi, hex_buffer
+    mov eax, ecx
+    mov ecx, 8
+    call hex_to_string
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    jmp .dict_test_4
+.dict_test_3_fail:
+    mov esi, msg_dict_notfound
+    call vga_ser_write
+    
+.dict_test_4:
+    ; Test 4: Look up "NOTAWORD" (should not exist)
+    mov esi, lookup_str_4
+    call vga_ser_write
+    mov esi, lookup_str_4
+    mov cl, 8               ; "NOTAWORD" length
+    call dict_lookup
+    test eax, eax
+    jnz .dict_test_4_fail
+    mov esi, msg_dict_notfound
+    call vga_ser_write
+    jmp .dict_tests_done
+.dict_test_4_fail:
+    mov esi, msg_dict_found
+    call vga_ser_write
+    mov ecx, eax
+    mov esi, hex_buffer
+    mov eax, ecx
+    mov ecx, 8
+    call hex_to_string
+    mov esi, hex_buffer
+    call vga_ser_write
+    mov al, 10
+    call vga_ser_emit
+    
+.dict_tests_done:
 
     ; Halt the CPU
 .kernel_halt:
@@ -1070,3 +1486,26 @@ msg_started: db "Kernel started!", 10, 0
 msg_magic: db "Magic: ", 0
 msg_complete: db 10, "Boot complete! Halting...", 10, 0
 hex_buffer: db "0x00000000", 0
+
+; Test strings for numq
+msg_test: db 10, "Testing numq:", 10, 0
+msg_test_pass: db " => ", 0
+msg_test_fail: db " => FAIL", 10, 0
+
+test_str_1: db "'A'", 0           ; Char literal: should be 65
+test_str_2: db "$FF", 0          ; Hex: should be 255
+test_str_3: db "%1010", 0        ; Binary: should be 10
+test_str_4: db "#42", 0          ; Decimal: should be 42
+test_str_5: db "-99", 0          ; Negative: should be -99
+test_str_6: db "0", 0            ; Zero
+test_str_7: db "#XYZ", 0         ; Invalid: should fail
+
+; Test strings for dict_lookup
+msg_dict_test: db 10, "Testing dict_lookup:", 10, 0
+msg_dict_found: db " => FOUND at 0x", 0
+msg_dict_notfound: db " => NOT FOUND", 10, 0
+
+lookup_str_1: db "DUP", 0         ; Should find DUP
+lookup_str_2: db "dup", 0         ; Should find dup (case-insensitive)
+lookup_str_3: db "SWAP", 0        ; Should find SWAP
+lookup_str_4: db "NOTAWORD", 0    ; Should NOT find this

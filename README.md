@@ -7,7 +7,7 @@ Currently runs under QEMU (the 32-bit x86 emulator) using the `-kernel` option.
 ## Features
 
 - **32-bit x86 protected mode**: Full x86-32 architecture support
-- **Pure Assembly (FASM)**: Entire kernel in single `.asm` file (~2.5 KB object)
+- **Pure Assembly (FASM)**: Entire kernel in single `.asm` file (~5.6 KB object)
 - **VGA text console**: 80×25 text mode output (0xB8000)
 - **Serial output**: COM1 (0x3F8) for debugging/secondary output
 - **Interrupt system**: IDT + 8259 PIC with PS/2 keyboard handler
@@ -56,22 +56,18 @@ make run      # Build and run in QEMU window
 ## Memory Layout (32 MB)
 
 ```
-0x01FFFFFF  ┌─────────────────────┐
-            │  Free space         │
-0x00700800  │ Dictionary + Code   │ (grows UP, ~15 MB)
-            │ (mixed entries)     │
-            ├─────────────────────┤
-0x007FFC00  │ Data stack          │ (1 KB, grows down)
-            ├─────────────────────┤
-0x00600000  │ Graphics buffer     │ (4 MB, VESA 1280×1024@32-bit)
-            ├─────────────────────┤
-0x00200000  │ Kernel + data       │ (1 MB)
-            │ + ESP stack (16 KB) │
-            ├─────────────────────┤
-0x00100000  │ VGA text (4 KB, HW) │
-0x000B8000  ├─────────────────────┤
-            │ Reserved / BIOS     │
-0x00000000  └─────────────────────┘
+0x01FFFFFF  ┌─────────────────────────────┐
+0x00600200  │ Dictionary (grows UP)       │ ~15 MB free
+            │ (code + data)               │
+0x00600100  ├─────────────────────────────┤
+            │ Data stack (grows DOWN)     │ 1 KB
+0x00200000  ├─────────────────────────────┤
+            │ Graphics buffer             │ 4 MB
+0x00100000  ├─────────────────────────────┤
+            │ Kernel + ESP stack          │ 1 MB (16 KB stack)
+0x000B8000  ├─────────────────────────────┤
+            │ VGA text (HW)               │ 4 KB
+0x00000000  └─────────────────────────────┘
 ```
 
 **Dictionary Entry Format:**
@@ -83,6 +79,30 @@ make run      # Build and run in QEMU window
 [Offset 10:n]  Name, NULL-terminated (variable length)
 [Offset n+1:m] Inline code (XT, variable size)
 ```
+
+## Implemented Primitives
+
+**Stack Manipulation:**
+- [x] CELL - Push cell size (4)
+- [x] DUP - Duplicate TOS
+- [x] DROP - Remove TOS
+- [x] SWAP - Exchange TOS and NOS
+- [x] OVER - Copy NOS to TOS
+
+**Arithmetic:**
+- [x] + (ADD) - Add TOS and NOS
+- [x] - (SUB) - Subtract TOS from NOS
+- [x] * (MULT) - Multiply TOS and NOS
+- [x] / (DIV) - Signed divide NOS by TOS
+
+**I/O & Utility:**
+- [x] EMIT - Output character (to VGA + serial)
+- [x] KEY? - Check if keyboard buffer has data
+- [x] TIMER - Get current timer tick count
+- [x] WORDS - List all dictionary words
+- [x] NUMBER? - Parse string to integer ($hex, %binary, #decimal, 'char', -negative)
+- [x] C, - Store byte at HERE, increment by 1
+- [x] , - Store cell at HERE, increment by 4
 
 ## Kernel Components
 
@@ -157,25 +177,43 @@ qemu-system-i386 -kernel kernel.elf -m 32M -serial stdio
 qemu-system-i386 -kernel kernel.elf -m 32M
 ```
 
-## Next Steps (FORTH Implementation)
+## Implemented Primitives
 
-**Progress:**
-- [x] Stack macros: dPush, dPop, getTOS, getNOS, setTOS, setNOS (EBP-based)
-- [x] Dictionary infrastructure (linked list, case-insensitive lookup)
-- [ ] Primitives (in progress)
+**Stack Manipulation:**
+- [x] CELL - Push cell size (4)
+- [x] DUP - Duplicate TOS
+- [x] DROP - Remove TOS
+- [x] SWAP - Exchange TOS and NOS
+- [x] OVER - Copy NOS to TOS
+
+**Arithmetic:**
+- [x] \+ (ADD) - Add TOS and NOS
+- [x] \- (SUB) - Subtract TOS from NOS
+- [x] \* (MULT) - Multiply TOS and NOS
+- [x] / (DIV) - Signed divide NOS by TOS
+
+**I/O & Utility:**
+- [x] EMIT - Output character (to VGA + serial)
+- [x] KEY? - Check if keyboard buffer has data
+- [x] TIMER - Get current timer tick count
+- [x] WORDS - List all dictionary words
+- [x] NUMBER? - Parse string to integer ($hex, %binary, #decimal, 'char', -negative)
+- [x] C, - Store byte at HERE, increment by 1
+- [x] , - Store cell at HERE, increment by 4
+
+## Next Steps (FORTH Implementation)
 
 **Roadmap for remaining FORTH:**
 
-1. **More stack primitives** - OVER, ROT, -ROT, DEPTH, PICK, ROLL
-2. **Arithmetic** - +, -, *, /, MOD, /MOD, ABS, MIN, MAX, NEGATE
-3. **Comparison** - <, >, =, <>, <=, >=, 0<, 0>, 0=
-4. **Memory access** - @, !, C@, C!, +!
-5. **Control flow** - IF, THEN, ELSE, BEGIN, UNTIL, LOOP, DO
-6. **FORTH I/O** - EMIT, KEY, CR, SPACES
-7. **Interpreter loop** - Token parsing, execute from dictionary
-8. **Word definition** - Colon definitions (: name ... ;)
-9. **Graphics** - PIXEL drawing using 4MB buffer
-10. **Optimizations** - JIT compilation, tail call optimization
+1. **More stack primitives** - ROT, -ROT, NIP, TUCK, DEPTH, PICK, ROLL
+2. **Comparison** - <, >, =, <>, <=, >=, 0<, 0>, 0=
+3. **Memory access** - @, !, C@, C!, +!
+4. **Control flow** - IF, THEN, ELSE, BEGIN, UNTIL, LOOP, DO
+5. **FORTH I/O** - KEY, CR, SPACES, ACCEPT (read line)
+6. **Interpreter loop** - Token parsing, execute from dictionary
+7. **Word definition** - Colon definitions (: name ... ;)
+8. **Graphics** - PIXEL drawing using 4MB buffer
+9. **Optimizations** - JIT compilation, tail call optimization
 
 ## Debug Commands
 
@@ -198,11 +236,13 @@ objdump -s -j .multiboot kernel.elf | head -5
 
 - [x] Stack abstraction (EBP-based data stack)
 - [x] Dictionary infrastructure
+- [x] Core primitives (17 implemented)
+- [x] Number parsing (numq with multiple bases)
+- [x] Dictionary lookup (case-insensitive)
 - [ ] FORTH interpreter loop not yet implemented
-- [ ] No scancode--ASCII conversion (raw scancodes in buffer)
+- [ ] No scancode→ASCII conversion (raw scancodes in buffer)
 - [ ] Graphics buffer allocated but unused
 - [ ] No disk support
-- [ ] Core primitives (in progress)
 
 ## Architecture Notes
 

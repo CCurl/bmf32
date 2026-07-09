@@ -30,12 +30,13 @@ SERIAL_PORT = 0x3F8
 ;
 ;   Dictionary (grows UP from DICT_START, code + data)
 ;   Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
-; Starts at 0x00600200
+; Starts at 0x00600500
 ;
 ;   Data stack (1 KB, grows DOWN) 
-; Starts at 0x00600100
+; Starts at 0x00600400
 ;
 ;   Graphics buffer (4 MB, 1280×1024@32-bit)
+; Ends at 0x00600000
 ; Starts at 0x00200000
 ;
 ;   Kernel code + data + kernel stack (16 KB, ESP points here)
@@ -46,13 +47,14 @@ KERNEL_START  = 0x00100000
 
 ; Graphics buffer (4 MB for VESA 1280×1024@32-bit)
 GRAPHICS_START = 0x00200000
+GRAPHICS_END = 0x00600000
 GRAPHICS_SIZE  = 0x00400000  ; 4 MB
 
 ; Data stack (grows downward from here)
-DATA_STK_BASE = 0x00600100
+DATA_STK_BASE = 0x00600400
 
 ; Dictionary + Code (grows upward from here, code and data)
-DICT_START    = 0x00600200
+DICT_START    = 0x00600500
 
 ; Note: ESP (kernel stack) remains in kernel .bss section (16 KB)
 
@@ -138,6 +140,9 @@ HERE: dd DICT_START             ; Next free address (grows UP)
 LAST: dd 0                      ; Most recent word (0 initially, will point to last defined)
 BASE: dd 10                     ; Number base (default 10)
 STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
+TO_IN: dd 0                     ; >IN - address of current input stream
+TIB: db 256 dup(0)              ; TIB - the Text Input Buffer
+PARSED_WORD: db 32
 
 ; Note: EBP = data stack pointer (grows downward)
 
@@ -1104,10 +1109,38 @@ XT_numq:
     dPush eax               ; numq pushes the parsed number if valid
     ret
 
+; WORD primitive - parse the next word from >IN
+; (--a len)
+dict_word:
+    dd dict_numq, XT_word
+    db 0, 4, "WORD", 0      ; Parse the next word from >IN
+XT_word:
+    mov ecx, 0              ; Length
+    mov esi, [TO_IN]
+    lea edi, [PARSED_WORD]
+    dPush edi
+.skip_ws:
+    mov al, [esi]
+    cmp al, 0
+    je .done
+    cmp al, 32
+    jg .collect_wd
+    inc esi
+    jmp .skip_ws
+.collect_wd:
+    mov [edi+ecx], al
+    inc esi
+    inc ecx
+    jmp .collect_wd
+.done:
+    dPush ecx               ; TODO
+    ret
+
+
 ; EMIT primitive - Output character on TOS
 ; (ch -- )
 dict_emit:
-    dd dict_numq, XT_emit   ; Link, XT
+    dd dict_word, XT_emit   ; Link, XT
     db 0, 0x04, "EMIT", 0   ; Flags, Len, Name
 XT_emit:
     dPop eax

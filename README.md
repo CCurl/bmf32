@@ -57,10 +57,10 @@ make run      # Build and run in QEMU window
 
 ```
 0x01FFFFFF  ┌─────────────────────────────┐
-0x00600200  │ Dictionary (grows UP)       │ ~15 MB free
+0x00600500  │ Dictionary (grows UP)       │ ~15 MB free
             │ (code + data)               │
-0x00600100  ├─────────────────────────────┤
-            │ Data stack (grows DOWN)     │ 1 KB
+0x00600400  ├─────────────────────────────┤
+            │ Data stack (grows DOWN)     │ 1 KB, 256 entries
 0x00200000  ├─────────────────────────────┤
             │ Graphics buffer             │ 4 MB
 0x00100000  ├─────────────────────────────┤

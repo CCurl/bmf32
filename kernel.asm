@@ -26,35 +26,15 @@ SERIAL_PORT = 0x3F8
 ; ============================================================================
 ; MEMORY LAYOUT (32 MB total)
 ; ============================================================================
-; 0x01FFFFFF  Free space
-;
-;   Dictionary (grows UP from DICT_START, code + data)
-;   Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
-; Starts at 0x00600500
-;
-;   Data stack (1 KB, grows DOWN) 
-; Starts at 0x00600400
-;
-;   Graphics buffer (4 MB, 1280×1024@32-bit)
-; Ends at 0x00600000
-; Starts at 0x00200000
-;
-;   Kernel code + data + kernel stack (16 KB, ESP points here)
-; Starts at 0x00100000
+; Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
 
-; Kernel entry point (GRUB multiboot)
-KERNEL_START  = 0x00100000
-
-; Graphics buffer (4 MB for VESA 1280×1024@32-bit)
-GRAPHICS_START = 0x00200000
-GRAPHICS_END = 0x00600000
-GRAPHICS_SIZE  = 0x00400000  ; 4 MB
-
-; Data stack (grows downward from here)
-DATA_STK_BASE = 0x00600400
-
-; Dictionary + Code (grows upward from here, code and data)
-DICT_START    = 0x00600500
+DICT_START     = 0x00600500  ; Dictionary (grows UP)
+DATA_STK_BASE  = 0x00600400  ; Data stack (grows DOWN)
+GRAPHICS_END   = 0x005FFFFF  ; Graphics buffer end
+GRAPHICS_START = 0x00200000  ; Graphics buffer start (4 MB)
+WORD_START     = 0x00180200  ; Word buffer (256 bytes)
+TIB_START      = 0x00180000  ; Text Input Buffer (512 bytes)
+KERNEL_START   = 0x00100000  ; Kernel entry point (GRUB multiboot)
 
 ; Note: ESP (kernel stack) remains in kernel .bss section (16 KB)
 
@@ -141,8 +121,6 @@ LAST: dd 0                      ; Most recent word (0 initially, will point to l
 BASE: dd 10                     ; Number base (default 10)
 STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
 TO_IN: dd 0                     ; >IN - address of current input stream
-TIB: db 256 dup(0)              ; TIB - the Text Input Buffer
-PARSED_WORD: db 32
 
 ; Note: EBP = data stack pointer (grows downward)
 
@@ -903,16 +881,30 @@ numq:
     pop ebx
     ret
 
+; strlen - determine the length of a null-terminated string
+; Entry: ESI = pointer to string
+; Exit: ECX = length of string (not including null terminator)
+strlen:
+    xor ecx, ecx            ; ECX = length counter
+.strlen_loop:
+    mov al, [esi+ecx]
+    cmp al, 0
+    je .strlen_done
+    inc ecx
+    jmp .strlen_loop
+.strlen_done:
+    ret
+
 ; ============================================================================
 ; SECTION: FORTH DICTIONARY & LOOKUP
 ; ============================================================================
 
 ; Dictionary lookup - find a word by name
 ; Entry: ESI = pointer to name string
-;        CL = string length
 ; Exit: EAX = address of dictionary entry (or 0 if not found)
 ; NOTE: Overwrites EAX, EBX, EDX, EDI
 dict_lookup:
+    call strlen             ; Get length of search string in ECX
     push ecx                ; Save length on stack
     mov eax, [LAST]         ; Start at most recently defined word
     
@@ -1099,7 +1091,7 @@ XT_div:
     ret
 
 ; NUMBER? primitive - Check if string is a number
-; (str -- (num 1) | 0 )
+; ( str -- (num 1) | 0 )
 dict_numq:
     dd dict_div, XT_numq    ; Link, XT
     db 0, 7, "NUMBER?", 0   ; Flags, Len, Name
@@ -1110,37 +1102,51 @@ XT_numq:
     ret
 
 ; WORD primitive - parse the next word from >IN
-; (--a len)
+; ( --a len )
 dict_word:
     dd dict_numq, XT_word
     db 0, 4, "WORD", 0      ; Parse the next word from >IN
 XT_word:
     mov ecx, 0              ; Length
     mov esi, [TO_IN]
-    lea edi, [PARSED_WORD]
+    mov edi, WORD_START
     dPush edi
-.skip_ws:
+.skip_ws:                   ; Skip leading whitespace
     mov al, [esi]
-    cmp al, 0
+    cmp al, 0               ; end of string?
     je .done
     cmp al, 32
     jg .collect_wd
     inc esi
     jmp .skip_ws
-.collect_wd:
+.collect_wd:                ; Collect characters until whitespace or null
     mov [edi+ecx], al
+    cmp al, 32
+    jle .done
     inc esi
     inc ecx
+    mov al, [esi]
     jmp .collect_wd
 .done:
-    dPush ecx               ; TODO
+    mov [TO_IN], esi
+    dPush ecx
     ret
 
+; STRLEN primitive - Get string length
+; ( str -- len )
+dict_slen:
+    dd dict_word, XT_slen   ; Link, XT
+    db 0, 6, "STRLEN", 0    ; Flags, Len, Name
+XT_slen:
+    getTOS esi
+    call strlen
+    setTOS ecx
+    ret
 
 ; EMIT primitive - Output character on TOS
-; (ch -- )
+; ( ch -- )
 dict_emit:
-    dd dict_word, XT_emit   ; Link, XT
+    dd dict_slen, XT_emit   ; Link, XT
     db 0, 0x04, "EMIT", 0   ; Flags, Len, Name
 XT_emit:
     dPop eax
@@ -1221,288 +1227,8 @@ kernel_main:
     mov dword [BASE], 10
     mov dword [STATE], 0
 
-    call kernel_clear        ; Clear VGA screen
-    mov esi, msg_started     ; Print startup message
-    call vga_ser_write
-    
-    mov esi, msg_magic       ; Print magic number
-    call vga_ser_write
-
-    ; Load and display the multiboot magic number
-    mov eax, [multiboot_magic]
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, hex_buffer
-    call vga_ser_write
-
-    mov al, 10
-    call vga_ser_emit
-    call vga_ser_emit
-    call XT_words            ; Print dictionary words
-    mov al, 10
-    call vga_ser_emit
-
-    ; Test numq function
-    mov esi, msg_test
-    call vga_ser_write
-    
-    ; Test 1: 'A' (char literal)
-    mov esi, test_str_1
-    call vga_ser_write
-    call numq
-    test eax, eax
-    jz .test_1_fail
-    dPop eax
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, msg_test_pass
-    call vga_ser_write
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    jmp .test_2
-.test_1_fail:
-    mov esi, msg_test_fail
-    call vga_ser_write
-    
-.test_2:
-    ; Test 2: $FF (hex)
-    mov esi, test_str_2
-    call vga_ser_write
-    call numq
-    test eax, eax
-    jz .test_2_fail
-    dPop eax
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, msg_test_pass
-    call vga_ser_write
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    jmp .test_3
-.test_2_fail:
-    mov esi, msg_test_fail
-    call vga_ser_write
-    
-.test_3:
-    ; Test 3: %1010 (binary)
-    mov esi, test_str_3
-    call vga_ser_write
-    call numq
-    test eax, eax
-    jz .test_3_fail
-    dPop eax
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, msg_test_pass
-    call vga_ser_write
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    jmp .test_4
-.test_3_fail:
-    mov esi, msg_test_fail
-    call vga_ser_write
-    
-.test_4:
-    ; Test 4: #42 (decimal)
-    mov esi, test_str_4
-    call vga_ser_write
-    call numq
-    test eax, eax
-    jz .test_4_fail
-    dPop eax
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, msg_test_pass
-    call vga_ser_write
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    jmp .test_5
-.test_4_fail:
-    mov esi, msg_test_fail
-    call vga_ser_write
-    
-.test_5:
-    ; Test 5: -99 (negative)
-    mov esi, test_str_5
-    call vga_ser_write
-    call numq
-    test eax, eax
-    jz .test_5_fail
-    dPop eax
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, msg_test_pass
-    call vga_ser_write
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    jmp .test_6
-.test_5_fail:
-    mov esi, msg_test_fail
-    call vga_ser_write
-    
-.test_6:
-    ; Test 6: 0 (zero)
-    mov esi, test_str_6
-    call vga_ser_write
-    call numq
-    test eax, eax
-    jz .test_6_fail
-    dPop eax
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, msg_test_pass
-    call vga_ser_write
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    jmp .test_7
-.test_6_fail:
-    mov esi, msg_test_fail
-    call vga_ser_write
-    
-.test_7:
-    ; Test 7: #XYZ (invalid)
-    mov esi, test_str_7
-    call vga_ser_write
-    call numq
-    test eax, eax
-    jnz .test_7_fail
-    mov esi, msg_test_fail
-    call vga_ser_write
-    jmp .tests_done
-.test_7_fail:
-    mov esi, msg_test_pass
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    
-.tests_done:
-    ; Print completion message
-    mov esi, msg_complete
-    call vga_ser_write
-    
-    ; Test dict_lookup function
-    mov esi, msg_dict_test
-    call vga_ser_write
-    
-    ; Test 1: Look up "DUP"
-    mov esi, lookup_str_1
-    call vga_ser_write
-    mov esi, lookup_str_1
-    mov cl, 3               ; "DUP" length
-    call dict_lookup
-    test eax, eax
-    jz .dict_test_1_fail
-    mov esi, msg_dict_found
-    call vga_ser_write
-    mov ecx, eax
-    mov esi, hex_buffer
-    mov eax, ecx
-    mov ecx, 8
-    call hex_to_string
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    jmp .dict_test_2
-.dict_test_1_fail:
-    mov esi, msg_dict_notfound
-    call vga_ser_write
-    
-.dict_test_2:
-    ; Test 2: Look up "dup" (case-insensitive)
-    mov esi, lookup_str_2
-    call vga_ser_write
-    mov esi, lookup_str_2
-    mov cl, 3               ; "dup" length
-    call dict_lookup
-    test eax, eax
-    jz .dict_test_2_fail
-    mov esi, msg_dict_found
-    call vga_ser_write
-    mov ecx, eax
-    mov esi, hex_buffer
-    mov eax, ecx
-    mov ecx, 8
-    call hex_to_string
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    jmp .dict_test_3
-.dict_test_2_fail:
-    mov esi, msg_dict_notfound
-    call vga_ser_write
-    
-.dict_test_3:
-    ; Test 3: Look up "SWAP"
-    mov esi, lookup_str_3
-    call vga_ser_write
-    mov esi, lookup_str_3
-    mov cl, 4               ; "SWAP" length
-    call dict_lookup
-    test eax, eax
-    jz .dict_test_3_fail
-    mov esi, msg_dict_found
-    call vga_ser_write
-    mov ecx, eax
-    mov esi, hex_buffer
-    mov eax, ecx
-    mov ecx, 8
-    call hex_to_string
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    jmp .dict_test_4
-.dict_test_3_fail:
-    mov esi, msg_dict_notfound
-    call vga_ser_write
-    
-.dict_test_4:
-    ; Test 4: Look up "NOTAWORD" (should not exist)
-    mov esi, lookup_str_4
-    call vga_ser_write
-    mov esi, lookup_str_4
-    mov cl, 8               ; "NOTAWORD" length
-    call dict_lookup
-    test eax, eax
-    jnz .dict_test_4_fail
-    mov esi, msg_dict_notfound
-    call vga_ser_write
-    jmp .dict_tests_done
-.dict_test_4_fail:
-    mov esi, msg_dict_found
-    call vga_ser_write
-    mov ecx, eax
-    mov esi, hex_buffer
-    mov eax, ecx
-    mov ecx, 8
-    call hex_to_string
-    mov esi, hex_buffer
-    call vga_ser_write
-    mov al, 10
-    call vga_ser_emit
-    
-.dict_tests_done:
+include 'tests.inc'          ; Include test routines
+    call run_tests           ; Run tests
 
     ; Halt the CPU
 .kernel_halt:

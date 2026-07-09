@@ -57,16 +57,19 @@ make run      # Build and run in QEMU window
 
 ```
 0x01FFFFFF  ┌─────────────────────────────┐
-0x00600500  │ Dictionary (grows UP)       │ ~15 MB free
-            │ (code + data)               │
+            │ User Dictionary (grows UP)  │ ~15 MB free
+0x00600500  ├─────────────────────────────┤
+            │ Buffer                      │ 256 bytes
 0x00600400  ├─────────────────────────────┤
             │ Data stack (grows DOWN)     │ 1 KB, 256 entries
-0x00200000  ├─────────────────────────────┤
+0x00600000  ├─────────────────────────────┤
             │ Graphics buffer             │ 4 MB
-0x00100000  ├─────────────────────────────┤
+0x00200000  ├─────────────────────────────┤
             │ Kernel + ESP stack          │ 1 MB (16 KB stack)
-0x000B8000  ├─────────────────────────────┤
+0x00100000  ├─────────────────────────────┤
             │ VGA text (HW)               │ 4 KB
+0x000B8000  ├─────────────────────────────┤
+            │ BIOS / System               │
 0x00000000  └─────────────────────────────┘
 ```
 
@@ -174,6 +177,8 @@ qemu-system-i386 -kernel kernel.elf -m 32M
 - [x] TIMER - Get current timer tick count
 - [x] WORDS - List all dictionary words
 - [x] NUMBER? - Parse string to integer ($hex, %binary, #decimal, 'char', -negative)
+- [x] WORD - Parse next word from input stream
+- [x] STRLEN - Get length of null-terminated string
 - [x] C, - Store byte at HERE, increment by 1
 - [x] , - Store cell at HERE, increment by 4
 

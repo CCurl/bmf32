@@ -162,7 +162,7 @@ qemu-system-i386 -kernel kernel.elf -m 32M
 **Progress:**
 - ✅ Stack macros: dPush, dPop, getTOS, getNOS, setTOS, setNOS (EBP-based)
 - ✅ Dictionary infrastructure (linked list, case-insensitive lookup)
-- ⏳ Primitives (in orogress)
+- ⏳ Primitives (in progress)
 
 **Roadmap for remaining FORTH:**
 

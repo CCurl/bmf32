@@ -26,36 +26,15 @@ SERIAL_PORT = 0x3F8
 ; ============================================================================
 ; MEMORY LAYOUT (32 MB total)
 ; ============================================================================
-; 0x01FFFFFF  Free space
-;
-;   Dictionary + Code (grow UP from DICT_START, mixed entries)
-;   Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
-; 0x00700800
-;
-;   Data stack (1 KB, grows DOWN) 
-; 0x007FFC00
-;
-;   Graphics buffer (4 MB, 1280×1024@32-bit)
-; 0x00200000
-;
-;   Kernel code + data + kernel stack (16 KB, ESP points here)
-; 0x00100000
-; 0x00000000
+; Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
 
-; Kernel entry point (GRUB multiboot)
-KERNEL_START  = 0x00100000
-
-; Graphics buffer (4 MB for VESA 1280×1024@32-bit)
-GRAPHICS_START = 0x00200000
-GRAPHICS_SIZE  = 0x00400000  ; 4 MB
-
-; Data stack (1 KB, grows downward, will use memory)
-DATA_STK_BASE = 0x007FFC00
-DATA_STK_SIZE = 0x00000400  ; 1 KB (256 entries × 4 bytes)
-
-; Dictionary + Code (grows upward from here, mixed entries)
-DICT_START    = 0x00700800
-DICT_SIZE     = 0x00F00000  ; ~15 MB available for dictionary+code
+DICT_START     = 0x00600500  ; Dictionary (grows UP)
+DATA_STK_BASE  = 0x00600400  ; Data stack (grows DOWN)
+GRAPHICS_END   = 0x005FFFFF  ; Graphics buffer end
+GRAPHICS_START = 0x00200000  ; Graphics buffer start (4 MB)
+WORD_START     = 0x00180200  ; Word buffer (256 bytes)
+TIB_START      = 0x00180000  ; Text Input Buffer (512 bytes)
+KERNEL_START   = 0x00100000  ; Kernel entry point (GRUB multiboot)
 
 ; Note: ESP (kernel stack) remains in kernel .bss section (16 KB)
 
@@ -136,10 +115,12 @@ keyboard_tail: dd 0             ; Read pointer
 ; Timer interrupt counter
 timer_ticks: dd 0               ; Incremented on each timer interrupt (IRQ0)
 
-; FORTH Dictionary pointers
-DICT_START = 0x00700800         ; Start of dictionary in memory
+; FORTH variables
 HERE: dd DICT_START             ; Next free address (grows UP)
 LAST: dd 0                      ; Most recent word (0 initially, will point to last defined)
+BASE: dd 10                     ; Number base (default 10)
+STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
+TO_IN: dd 0                     ; >IN - address of current input stream
 
 ; Note: EBP = data stack pointer (grows downward)
 
@@ -151,7 +132,7 @@ idt: rb IDT_SIZE * IDT_ENTRY_SIZE
 section '.data'
 idtr:
     dw IDT_SIZE * IDT_ENTRY_SIZE - 1  ; limit (size - 1)
-    dd idt                             ; base address
+    dd idt                            ; base address
 
 ; ============================================================================
 ; SECTION: BOOT & INITIALIZATION
@@ -254,7 +235,7 @@ scroll_screen:
 ; Write single character to VGA at cursor position
 ; Entry: AL = character
 ; Exit: cursor advanced, wraps to next line
-vga_putchar:
+vga_emit:
     push eax
     push ebx
     push ecx
@@ -317,7 +298,7 @@ vga_write:
     test al, al             ; check for null terminator
     jz .write_done
     
-    call vga_putchar
+    call vga_emit
     jmp .write_loop
     
 .write_done:
@@ -359,12 +340,23 @@ init_serial:
     pop eax
     ret
 
+; Write char in AL to serial port (COM1)
+; Entry: AL = character to send
+; Exit: character sent to serial port
+ser_emit:
+    push edx
+    mov dx, SERIAL_PORT
+    out dx, al
+    pop edx
+    ret
+
 ; Write null-terminated string to serial port (COM1)
 ; Entry: ESI = pointer to string
 ; Exit: string sent to serial port
 ser_write:
     push eax
     push edx
+    push esi
     
     mov dx, SERIAL_PORT
 .ser_write_loop:
@@ -376,6 +368,7 @@ ser_write:
     jmp .ser_write_loop
 
 .ser_write_done:
+    pop esi
     pop edx
     pop eax
     ret
@@ -385,6 +378,13 @@ ser_write:
 vga_ser_write:
     call vga_write
     call ser_write
+    ret
+
+; EMIT a char to both VGA and serial port (COM1)
+; Entry: AL = character to send
+vga_ser_emit:
+    call vga_emit
+    call ser_emit
     ret
 
 ; ============================================================================
@@ -730,176 +730,476 @@ hex_to_string:
     pop eax
     ret
 
+; numq - Check if string is a number and convert to integer
+; Entry: ESI = pointer to string
+; Exit: EAX = 1 if valid number, 0 if not
+;       Pushes parsed integer to data stack if valid
+numq:
+    push ebx
+    push ecx
+    push edx
+    push edi
+    
+    ; Check for char literal: 'c' format
+    mov al, [esi]
+    cmp al, 39              ; 39 = ' (single quote)
+    jne .numq_check_prefix
+    
+    mov al, [esi + 2]
+    cmp al, 39              ; Check closing quote
+    jne .numq_check_prefix
+    
+    mov al, [esi + 3]
+    cmp al, 0               ; Check null terminator
+    jne .numq_check_prefix
+    
+    ; Valid char literal: push the character value
+    mov al, [esi + 1]
+    movzx eax, al           ; Zero-extend AL to EAX
+    dPush eax
+    mov eax, 1              ; Return success
+    jmp .numq_return
+    
+.numq_check_prefix:
+    cmp al, 0
+    je .numq_fail           ; Empty string, fail
+
+    ; Load base (default from BASE variable)
+    mov ebx, [BASE]         ; EBX = base
+    xor edx, edx            ; EDX = 0 (1 => isNeg)
+    
+    ; Check for % prefix (binary)
+    cmp al, '%'
+    jne .numq_check_hash
+    mov ebx, 2
+    inc esi
+    jmp .numq_parse_start   ; No negative sign for binary
+    
+.numq_check_hash:
+    ; Check for # prefix (decimal)
+    cmp al, '#'
+    jne .numq_check_dollar
+    mov ebx, 10
+    inc esi
+    jmp .numq_check_minus   ; Decimal allows negative sign
+    
+.numq_check_dollar:
+    ; Check for $ prefix (hex)
+    cmp al, '$'
+    jne .numq_check_minus
+    mov ebx, 16
+    inc esi
+    jmp .numq_parse_start   ; No negative sign check for hex
+    
+.numq_check_minus:
+    ; Check for minus sign (only if base == 10)
+    cmp ebx, 10
+    jne .numq_parse_start
+    
+    mov al, [esi]
+    cmp al, '-'
+    jne .numq_parse_start
+    mov edx, 1              ; Set negative flag
+    inc esi
+    
+.numq_parse_start:
+    ; Check if string is empty after prefix/minus
+    mov al, [esi]
+    cmp al, 0
+    je .numq_fail
+    
+    ; Initialize accumulator
+    xor ecx, ecx            ; ECX = accumulated number
+    
+.numq_loop:
+    mov al, [esi]
+    cmp al, 0
+    je .numq_done
+    
+    ; Convert uppercase to lowercase
+    cmp al, 'A'
+    jl .numq_char_ok
+    cmp al, 'Z'
+    jg .numq_char_ok
+    add al, 32              ; Convert to lowercase
+    
+.numq_char_ok:
+    ; Convert char to digit value (0-9 or 10-15 for a-f)
+    xor edi, edi            ; EDI = digit value
+    
+    ; Try 0-9
+    cmp al, '0'
+    jl .numq_fail
+    cmp al, '9'
+    jg .numq_try_letters
+    
+    sub al, '0'
+    movzx edi, al
+    jmp .numq_check_range
+    
+.numq_try_letters:
+    ; Try a-f
+    cmp al, 'a'
+    jl .numq_fail
+    cmp al, 'f'
+    jg .numq_fail
+    
+    sub al, 'a'
+    add al, 10
+    movzx edi, al
+    
+.numq_check_range:
+    ; Check if digit < base
+    cmp edi, ebx
+    jge .numq_fail
+    
+    ; Accumulate: n = n*base + digit
+    imul ecx, ebx           ; ECX = ECX * base
+    add ecx, edi            ; ECX = ECX + digit
+    
+    inc esi
+    jmp .numq_loop
+    
+.numq_done:
+    ; Apply sign if needed
+    test edx, edx
+    jz .numq_push_result
+    neg ecx
+    
+.numq_push_result:
+    dPush ecx
+    mov eax, 1
+    jmp .numq_return
+    
+.numq_fail:
+    xor eax, eax
+    
+.numq_return:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+; strlen - determine the length of a null-terminated string
+; Entry: ESI = pointer to string
+; Exit: ECX = length of string (not including null terminator)
+strlen:
+    xor ecx, ecx            ; ECX = length counter
+.strlen_loop:
+    mov al, [esi+ecx]
+    cmp al, 0
+    je .strlen_done
+    inc ecx
+    jmp .strlen_loop
+.strlen_done:
+    ret
+
 ; ============================================================================
 ; SECTION: FORTH DICTIONARY & LOOKUP
 ; ============================================================================
 
 ; Dictionary lookup - find a word by name
-; Entry: ESI = pointer to name string (null-terminated), CL = string length
-; Exit: EBX = address of dictionary entry (or 0 if not found)
+; Entry: ESI = pointer to name string
+; Exit: EAX = address of dictionary entry (or 0 if not found)
+; NOTE: Overwrites EAX, EBX, EDX, EDI
 dict_lookup:
-    push eax
-    push ecx
-    push edx
-    
-    mov ebx, [LAST]         ; Start at most recently defined word
+    call strlen             ; Get length of search string in ECX
+    push ecx                ; Save length on stack
+    mov eax, [LAST]         ; Start at most recently defined word
     
 .search_loop:
-    cmp ebx, 0              ; End of dictionary?
+    cmp eax, 0              ; End of dictionary?
     je .lookup_not_found
     
-    ; Check length first: compare CL with bottom 5 bits of flags/len byte at [ebx + 8]
-    mov al, [ebx + 8]       ; Flags|Len byte
-    and al, 0x1F            ; Extract length (bottom 5 bits)
-    cmp al, cl              ; Compare lengths
+    ; Check length first: compare CL with length byte at [eax + 9]
+    mov cl, [esp]           ; Restore length into CL
+    mov bl, [eax + 9]       ; Length byte
+    cmp bl, cl              ; Compare lengths
     jne .name_no_match      ; Length mismatch, try next entry
     
-    ; Length matches, now compare name: [ebx + 9] is the name field
-    mov eax, ebx
-    add eax, 9              ; Point to name in entry
-    mov edx, esi            ; EDX is our search string pointer (preserve ESI on stack)
+    ; Length matches, now compare name: [eax + 10] is the name field
+    mov ebx, eax
+    add ebx, 10             ; Point to name in entry
+    mov edi, esi            ; EDI is our search string pointer
     
 .name_compare:
-    mov al, [eax]           ; Byte from dictionary entry name
-    mov cl, [edx]           ; Byte from search string
+    mov dl, [ebx]           ; DL = dict char
+    mov cl, [edi]           ; CL = search char
     
-    ; Convert both to uppercase for case-insensitive comparison
-    cmp al, 'a'
-    jl .al_ok
-    cmp al, 'z'
-    jg .al_ok
-    sub al, 32              ; Convert to uppercase
-.al_ok:
+    ; Convert dict char (DL)
+    cmp dl, 'a'
+    jl .skip_dict_upper
+    cmp dl, 'z'
+    jg .skip_dict_upper
+    sub dl, 32              ; Convert to uppercase
+.skip_dict_upper:
+    
+    ; Convert search char (CL)
     cmp cl, 'a'
-    jl .cl_ok
+    jl .skip_search_upper
     cmp cl, 'z'
-    jg .cl_ok
+    jg .skip_search_upper
     sub cl, 32              ; Convert to uppercase
-.cl_ok:
+.skip_search_upper:
     
-    cmp al, cl
+    cmp dl, cl
     jne .name_no_match      ; Bytes don't match
     
-    test al, al             ; Check for null terminator (both should match)
+    test dl, dl             ; Check for null terminator
     je .lookup_found
     
-    inc eax
-    inc edx
+    inc edi
+    inc ebx
     jmp .name_compare
     
 .name_no_match:
-    mov ebx, [ebx]          ; Follow link to previous entry
+    mov eax, [eax]          ; Follow link to previous entry
     jmp .search_loop
     
-.lookup_found:
-    pop edx
-    pop ecx
-    pop eax
+.lookup_found:              ; EAX already contains 0 (not found)
+.lookup_not_found:          ; EAX already contains the entry address
+    pop ecx                 ; Clean up stack
     ret
     
-.lookup_not_found:
-    xor ebx, ebx            ; Return 0 (not found)
-    pop edx
-    pop ecx
-    pop eax
-    ret
-
 ; ============================================================================
-; DICTIONARY ENTRIES - Core Primitives
+; DICTIONARY ENTRIES - Primitives
 ; ============================================================================
-; Entry format: [Link(4)][XT(4)][Flags|Len(1)][Name(var)][NULL][Code]
+section '.data'
+; Entry format: [Link:0-3][XT:4-7][Flags:8][Len:9][Name:10][NULL][Code]
 
 ; CELL primitive - Push cell size onto stack
 ; (-- cell-size)
-section '.data'
 dict_cell:
-    dd 0                    ; Link: 0 (no previous entry)
-    dd dict_cell_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "CELL", 0            ; Name: "CELL" with NULL
-dict_cell_XT:
+    dd 0, XT_cell           ; Link, XT
+    db 0, 0x04, "CELL", 0   ; Flags, Len, Name
+XT_cell:
     mov eax, 4              ; Cell size is 4 bytes
-    dPush eax               ; Push cell size onto stack
+    dPush eax
     ret
 
 ; DUP primitive - Duplicate top of stack
 ; (a -- a a)
 dict_dup:
-    dd dict_cell            ; Link
-    dd dict_dup_XT          ; XT: execution token (code address)
-    db 0x03                 ; Flags|Len: immediate=0, length=3
-    db "DUP", 0             ; Name: "DUP" with NULL
-dict_dup_XT:
-    getTOS eax              ; Read top of stack
-    dPush eax               ; Push duplicate
+    dd dict_cell, XT_dup    ; Link, XT
+    db 0, 0x03, "DUP", 0    ; Flags, Len, Name
+XT_dup:
+    getTOS eax
+    dPush eax
     ret
 
 ; DROP primitive - Remove top of stack
 ; (a b -- a)
 dict_drop:
-    dd dict_dup             ; Link: points to DUP (previous entry)
-    dd dict_drop_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "DROP", 0            ; Name: "DROP" with NULL
-dict_drop_XT:
-    dPop eax                ; Pop and discard top of stack
+    dd dict_dup, XT_drop    ; Link, XT
+    db 0, 0x04, "DROP", 0   ; Flags, Len, Name
+XT_drop:
+    dPop eax
     ret
 
 ; KEY? primitive - Check if keyboard buffer has data
 ; Returns 1 (true) or 0 (false) on data stack
 ; (-- flag)
 dict_keyq:
-    dd dict_drop            ; Link: points to DROP (previous entry)
-    dd dict_keyq_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "KEY?", 0            ; Name: "KEY?" with NULL
-dict_keyq_XT:
-    call keyboard_has_data  ; AL = 1 if data, 0 if empty
-    movzx eax, al           ; Zero-extend to 32-bit
-    dPush eax               ; Push result (1 or 0) onto stack
+    dd dict_drop, XT_keyq   ; Link, XT
+    db 0, 0x04, "KEY?", 0   ; Flags, Len, Name
+XT_keyq:
+    call keyboard_has_data  ; Sets AL = 1 if data available, else 0
+    movzx eax, al           ; Zero-extend AL to EAX
+    dPush eax
     ret
 
 ; SWAP primitive - Exchange top two stack elements
 ; (a b -- b a)
 dict_swap:
-    dd dict_keyq            ; Link: points to KEY? (previous entry)
-    dd dict_swap_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "SWAP", 0            ; Name: "SWAP" with NULL
-dict_swap_XT:
-    getTOS eax              ; eax = a (TOS)
-    getNOS ebx              ; ebx = b (NOS)
-    setNOS eax              ; write a to 2nd
-    setTOS ebx              ; write b to TOS
+    dd dict_keyq, XT_swap   ; Link, XT
+    db 0, 0x04, "SWAP", 0   ; Flags, Len, Name
+XT_swap:
+    getTOS eax
+    getNOS ebx
+    setTOS ebx
+    setNOS eax
+    ret
+
+; OVER primitive - push NOS
+; (a b -- a b a)
+dict_over:
+    dd dict_swap, XT_over   ; Link, XT
+    db 0, 0x04, "OVER", 0   ; Flags, Len, Name
+XT_over:
+    getNOS eax
+    dPush eax
     ret
 
 ; TIMER primitive - Get the current TIMER value
 ; (-- ticks)
 dict_timer:
-    dd dict_swap            ; Link: points to SWAP (previous entry)
-    dd dict_timer_XT        ; XT: execution token (code address)
-    db 0x05                 ; Flags|Len: immediate=0, length=5
-    db "TIMER", 0           ; Name: "TIMER" with NULL
-dict_timer_XT:
-    call timer_get_ticks    ; EAX = timer ticks
-    dPush eax               ; Push timer ticks onto stack
+    dd dict_over, XT_timer  ; Link, XT
+    db 0, 0x05, "TIMER", 0  ; Flags, Len, Name
+XT_timer:
+    call timer_get_ticks
+    dPush eax
     ret
 
 ; ADD primitive - Add top two stack elements
 ; (a b -- sum)
 dict_add:
-    dd dict_timer           ; Link: points to TIMER (previous entry)
-    dd dict_add_XT          ; XT: execution token (code address)
-    db 0x01                 ; Flags|Len: immediate=0, length=1
-    db "+", 0               ; Name: "+" with NULL
-dict_add_XT:
-    dPop ebx                ; ebx = a (TOS)
-    getTOS eax              ; eax = b (NOS)
-    add eax, ebx            ; a + b
-    setTOS eax              ; write result to TOS
+    dd dict_timer, XT_add   ; Link, XT
+    db 0, 0x01, "+", 0      ; Flags, Len, Name
+XT_add:
+    dPop ebx
+    getTOS eax
+    add eax, ebx
+    setTOS eax
     ret
 
-; TODO: Add more primitives (+, -, *, /, etc.)
+; SUB primitive - Subtract top two stack elements
+; (a b -- diff)
+dict_sub:
+    dd dict_add, XT_sub     ; Link, XT
+    db 0, 0x01, "-", 0      ; Flags, Len, Name
+XT_sub:
+    dPop ebx
+    getTOS eax
+    sub eax, ebx
+    setTOS eax
+    ret
+
+; MULT primitive - Multiply top two stack elements
+; (a b -- product)
+dict_mult:
+    dd dict_sub, XT_mult    ; Link, XT
+    db 0, 0x01, "*", 0      ; Flags, Len, Name
+XT_mult:
+    dPop ebx
+    getTOS eax
+    imul eax, ebx
+    setTOS eax
+    ret
+
+; DIV primitive - Divide top two stack elements
+; (a b -- quotient)
+dict_div:
+    dd dict_mult, XT_div    ; Link, XT
+    db 0, 0x01, "/", 0      ; Flags, Len, Name
+XT_div:
+    dPop ebx
+    getTOS eax
+    cdq                     ; Sign-extend EAX into EDX:EAX
+    idiv ebx
+    setTOS eax
+    ret
+
+; NUMBER? primitive - Check if string is a number
+; ( str -- (num 1) | 0 )
+dict_numq:
+    dd dict_div, XT_numq    ; Link, XT
+    db 0, 7, "NUMBER?", 0   ; Flags, Len, Name
+XT_numq:
+    dPop esi
+    call numq               ; Check if string in ESI is a number
+    dPush eax               ; numq pushes the parsed number if valid
+    ret
+
+; WORD primitive - parse the next word from >IN
+; ( --a len )
+dict_word:
+    dd dict_numq, XT_word
+    db 0, 4, "WORD", 0      ; Parse the next word from >IN
+XT_word:
+    mov ecx, 0              ; Length
+    mov esi, [TO_IN]
+    mov edi, WORD_START
+    dPush edi
+.skip_ws:                   ; Skip leading whitespace
+    mov al, [esi]
+    cmp al, 0               ; end of string?
+    je .done
+    cmp al, 32
+    jg .collect_wd
+    inc esi
+    jmp .skip_ws
+.collect_wd:                ; Collect characters until whitespace or null
+    mov [edi+ecx], al
+    cmp al, 32
+    jle .done
+    inc esi
+    inc ecx
+    mov al, [esi]
+    jmp .collect_wd
+.done:
+    mov [TO_IN], esi
+    dPush ecx
+    ret
+
+; STRLEN primitive - Get string length
+; ( str -- len )
+dict_slen:
+    dd dict_word, XT_slen   ; Link, XT
+    db 0, 6, "STRLEN", 0    ; Flags, Len, Name
+XT_slen:
+    getTOS esi
+    call strlen
+    setTOS ecx
+    ret
+
+; EMIT primitive - Output character on TOS
+; ( ch -- )
+dict_emit:
+    dd dict_slen, XT_emit   ; Link, XT
+    db 0, 0x04, "EMIT", 0   ; Flags, Len, Name
+XT_emit:
+    dPop eax
+    call vga_ser_emit
+    ret
+
+; COMMA primitive - store TOS value at HERE, increment HERE by 4
+; ( N-- )
+dict_comma:
+    dd dict_emit, XT_comma  ; Link, XT
+    db 0, 0x01, ",", 0      ; Flags, Len, Name
+XT_comma:
+    dPop eax
+    mov edx, [HERE]         ; Get current HERE address
+    mov [edx], eax          ; Store TOS value at HERE
+    add dword [HERE], 4     ; Increment HERE by 4 (cell size)
+    ret
+
+; CCOMMA primitive - store TOS byte at HERE, increment HERE by 1
+; ( B-- )
+dict_ccomma:
+    dd dict_comma, XT_ccomma ; Link, XT
+    db 0, 0x02, "C,", 0      ; Flags, Len, Name
+XT_ccomma:
+    dPop eax
+    mov edx, [HERE]          ; Get current HERE address
+    mov [edx], al            ; Store TOS byte at HERE
+    add dword [HERE], 1      ; Increment HERE by 1 (byte size)
+    ret
+
+; WORDS primitive - output the words in the dictionary
+; ( -- )
+dict_words:
+    dd dict_ccomma, XT_words ; Link, XT
+    db 0, 0x05, "WORDS", 0  ; Flags, Len, Name
+XT_words:
+    mov eax, [LAST]         ; Start at most recently defined word
+.words_loop:
+    cmp eax, 0              ; End of dictionary?
+    je .words_done
+    push eax                ; Print the word name
+    mov esi, eax            ; Set ESI: word name address
+    add esi, 10
+    call vga_ser_write
+    mov al, 32              ; Space
+    call vga_ser_emit
+    pop eax
+    mov eax, [eax]          ; Next word in dictionary
+    jmp .words_loop
+.words_done:
+    ret
+
+; TODO: Add more primitives
 
 ; ============================================================================
 ; SECTION: MAIN KERNEL FUNCTION
@@ -923,26 +1223,12 @@ kernel_main:
     call init_serial         ; Serial port
     
     ; Set LAST to the last defined word
-    mov dword [LAST], dict_add 
+    mov dword [LAST], dict_words
+    mov dword [BASE], 10
+    mov dword [STATE], 0
 
-    call kernel_clear        ; Clear VGA screen
-    mov esi, msg_started     ; Print startup message
-    call vga_ser_write
-    
-    mov esi, msg_magic       ; Print magic number
-    call vga_ser_write
-
-    ; Load and display the multiboot magic number
-    mov eax, [multiboot_magic]
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, hex_buffer
-    call vga_ser_write
-
-    ; Print completion message
-    mov esi, msg_complete
-    call vga_ser_write
+include 'tests.inc'          ; Include test routines
+    call run_tests           ; Run tests
 
     ; Halt the CPU
 .kernel_halt:
@@ -959,3 +1245,26 @@ msg_started: db "Kernel started!", 10, 0
 msg_magic: db "Magic: ", 0
 msg_complete: db 10, "Boot complete! Halting...", 10, 0
 hex_buffer: db "0x00000000", 0
+
+; Test strings for numq
+msg_test: db 10, "Testing numq:", 10, 0
+msg_test_pass: db " => ", 0
+msg_test_fail: db " => FAIL", 10, 0
+
+test_str_1: db "'A'", 0           ; Char literal: should be 65
+test_str_2: db "$FF", 0          ; Hex: should be 255
+test_str_3: db "%1010", 0        ; Binary: should be 10
+test_str_4: db "#42", 0          ; Decimal: should be 42
+test_str_5: db "-99", 0          ; Negative: should be -99
+test_str_6: db "0", 0            ; Zero
+test_str_7: db "#XYZ", 0         ; Invalid: should fail
+
+; Test strings for dict_lookup
+msg_dict_test: db 10, "Testing dict_lookup:", 10, 0
+msg_dict_found: db " => FOUND at 0x", 0
+msg_dict_notfound: db " => NOT FOUND", 10, 0
+
+lookup_str_1: db "DUP", 0         ; Should find DUP
+lookup_str_2: db "dup", 0         ; Should find dup (case-insensitive)
+lookup_str_3: db "SWAP", 0        ; Should find SWAP
+lookup_str_4: db "NOTAWORD", 0    ; Should NOT find this

@@ -257,7 +257,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 
 - [OSDev.org Wiki](https://wiki.osdev.org/)
 - [Multiboot Specification](https://www.gnu.org/software/grub/manual/multiboot/)
-- [x86 Instruction Set](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-manual-combined-volumes-1-2a-2b-2c-2d.pdf)
+- [x86 Instruction Set Reference](https://www.felixcloutier.com/x86/)
 - [FASM Documentation](https://flatassembler.net/)
 - [FORTH Standards](https://forth-standard.org/)
 

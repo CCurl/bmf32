@@ -1121,12 +1121,11 @@ XT_word:
     jmp .skip_ws
 .collect_wd:                ; Collect characters until whitespace or null
     mov [edi+ecx], al
-    cmp al, 32
-    jle .done
     inc esi
     inc ecx
     mov al, [esi]
-    jmp .collect_wd
+    cmp al, 32
+    jg .collect_wd
 .done:
     mov [TO_IN], esi
     dPush ecx
@@ -1177,10 +1176,20 @@ XT_ccomma:
     add dword [HERE], 1      ; Increment HERE by 1 (byte size)
     ret
 
+; CR primitive - Output a carriage return/newline
+; ( -- )
+dict_cr:
+    dd dict_ccomma, XT_cr   ; Link, XT
+    db 0, 0x02, "CR", 0     ; Flags, Len, Name
+XT_cr:
+    mov al, 10              ; Newline character
+    call vga_ser_emit
+    ret
+
 ; WORDS primitive - output the words in the dictionary
 ; ( -- )
 dict_words:
-    dd dict_ccomma, XT_words ; Link, XT
+    dd dict_cr, XT_words    ; Link, XT (updated to link to dict_cr)
     db 0, 0x05, "WORDS", 0  ; Flags, Len, Name
 XT_words:
     mov eax, [LAST]         ; Start at most recently defined word
@@ -1268,3 +1277,7 @@ lookup_str_1: db "DUP", 0         ; Should find DUP
 lookup_str_2: db "dup", 0         ; Should find dup (case-insensitive)
 lookup_str_3: db "SWAP", 0        ; Should find SWAP
 lookup_str_4: db "NOTAWORD", 0    ; Should NOT find this
+
+; Test strings for WORD primitive
+msg_word_test: db 10, "Testing WORD:", 10, 0
+word_test_input_1: db "  hello  world!", 0 ; Leading spaces, should parse "hello"

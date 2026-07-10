@@ -15,7 +15,7 @@ ISO_NAME = kernel.iso
 
 all: $(KERNEL_ELF)
 
-$(KERNEL_OBJ): kernel.asm
+$(KERNEL_OBJ): kernel.asm tests.inc
 	$(FASM) kernel.asm $(KERNEL_OBJ)
 
 $(KERNEL_ELF): $(KERNEL_OBJ)

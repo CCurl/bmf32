@@ -173,6 +173,7 @@ qemu-system-i386 -kernel kernel.elf -m 32M
 
 **I/O & Utility:**
 - [x] EMIT - Output character (to VGA + serial)
+- [x] CR - Output carriage return/newline
 - [x] KEY? - Check if keyboard buffer has data
 - [x] TIMER - Get current timer tick count
 - [x] WORDS - List all dictionary words
@@ -203,7 +204,7 @@ qemu-system-i386 -kernel kernel.elf -m 32M
 file kernel.elf
 readelf -l kernel.elf        # Program headers
 readelf -S kernel.elf        # Section headers
-nm kernel.elf                 # Symbols
+nm kernel.elf                # Symbols
 
 # Disassemble
 objdump -d kernel.elf | less

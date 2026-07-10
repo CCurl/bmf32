@@ -1246,7 +1246,7 @@ include 'tests.inc'          ; Include test routines
     jmp .kernel_halt
 
 ; ============================================================================
-; SECTION: DATA & STRINGS
+; SECTION: TEST DATA & STRINGS
 ; ============================================================================
 
 section '.data'
@@ -1260,7 +1260,7 @@ msg_test: db 10, "Testing numq:", 10, 0
 msg_test_pass: db " => ", 0
 msg_test_fail: db " => FAIL", 10, 0
 
-test_str_1: db "'A'", 0           ; Char literal: should be 65
+test_str_1: db "'A'", 0          ; Char literal: should be 65
 test_str_2: db "$FF", 0          ; Hex: should be 255
 test_str_3: db "%1010", 0        ; Binary: should be 10
 test_str_4: db "#42", 0          ; Decimal: should be 42

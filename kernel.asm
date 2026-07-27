@@ -26,7 +26,6 @@ SERIAL_PORT = 0x3F8
 ; ============================================================================
 ; MEMORY LAYOUT (32 MB total)
 ; ============================================================================
-; Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
 
 DICT_START     = 0x00600500  ; Dictionary (grows UP)
 DATA_STK_BASE  = 0x00600400  ; Data stack (grows DOWN)
@@ -621,21 +620,6 @@ keyboard_read:
     pop ebx
     ret
 
-; Check if keyboard buffer has data (non-blocking)
-; Exit: AL = 1 if data available, 0 if empty
-keyboard_has_data:
-    push ebx
-    
-    mov al, 0                    ; Default to 0 (no data)
-    mov ebx, [keyboard_tail]
-    cmp ebx, [keyboard_head]
-    je .kbd_exit                 ; If tail == head, buffer is empty
-    inc al                       ; Return 1 if data available
-    
-.kbd_exit:
-    pop ebx
-    ret
-
 ; Initialize PS/2 keyboard hardware
 init_ps2:
     push eax
@@ -966,55 +950,59 @@ dict_lookup:
 ; DICTIONARY ENTRIES - Primitives
 ; ============================================================================
 section '.data'
-; Entry format: [Link:0-3][XT:4-7][Flags:8][Len:9][Name:10][NULL][Code]
+; Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
+; Entry format: [Link:0-3][XT:4-7][Flags:8][Len:9][Name:10-?][NULL][XT/Code]
+
+; Create a dictionary entry for a primitive word
+; Usage: dPush eax    (or any 32-bit register)
+macro dictEntry prev, nameId, nameStr, len, flgs {
+dict_##nameId:
+    if prev eq 0
+        dd 0   ; No previous word, link = 0
+    else
+        dd dict_##prev   ; Link to previous word, XT
+    end if
+    dd XT_##nameId   ; Link to previous word, XT
+    db flgs, len
+    db nameStr, 0       ; Flags, Length, Name, NULL
+XT_##nameId:
+}
 
 ; CELL primitive - Push cell size onto stack
 ; (-- cell-size)
-dict_cell:
-    dd 0, XT_cell           ; Link, XT
-    db 0, 0x04, "CELL", 0   ; Flags, Len, Name
-XT_cell:
-    mov eax, 4              ; Cell size is 4 bytes
+dictEntry 0, cell, "CELL", 4, 0
     dPush eax
+    mov eax, 4              ; Cell size is 4 bytes
     ret
 
 ; DUP primitive - Duplicate top of stack
 ; (a -- a a)
-dict_dup:
-    dd dict_cell, XT_dup    ; Link, XT
-    db 0, 0x03, "DUP", 0    ; Flags, Len, Name
-XT_dup:
-    getTOS eax
+dictEntry cell, dup, "DUP", 3, 0
     dPush eax
     ret
 
 ; DROP primitive - Remove top of stack
 ; (a b -- a)
-dict_drop:
-    dd dict_dup, XT_drop    ; Link, XT
-    db 0, 0x04, "DROP", 0   ; Flags, Len, Name
-XT_drop:
+dictEntry dup, drop, "DROP", 4, 0
     dPop eax
     ret
 
 ; KEY? primitive - Check if keyboard buffer has data
 ; Returns 1 (true) or 0 (false) on data stack
 ; (-- flag)
-dict_keyq:
-    dd dict_drop, XT_keyq   ; Link, XT
-    db 0, 0x04, "KEY?", 0   ; Flags, Len, Name
-XT_keyq:
-    call keyboard_has_data  ; Sets AL = 1 if data available, else 0
-    movzx eax, al           ; Zero-extend AL to EAX
+dictEntry drop, keyq, "KEY?", 4, 0
     dPush eax
+    xor eax, eax             ; Default to 0 (no data)
+    mov ebx, [keyboard_tail]
+    cmp ebx, [keyboard_head]
+    je .keyq_exit            ; If tail == head, buffer is empty
+    inc eax                  ; Return 1 if data available
+.keyq_exit:                  ; If tail == head, buffer is empty
     ret
 
 ; SWAP primitive - Exchange top two stack elements
 ; (a b -- b a)
-dict_swap:
-    dd dict_keyq, XT_swap   ; Link, XT
-    db 0, 0x04, "SWAP", 0   ; Flags, Len, Name
-XT_swap:
+dictEntry keyq, swap, "SWAP", 4, 0
     getTOS eax
     getNOS ebx
     setTOS ebx
@@ -1023,30 +1011,21 @@ XT_swap:
 
 ; OVER primitive - push NOS
 ; (a b -- a b a)
-dict_over:
-    dd dict_swap, XT_over   ; Link, XT
-    db 0, 0x04, "OVER", 0   ; Flags, Len, Name
-XT_over:
+dictEntry swap, over, "OVER", 4, 0
     getNOS eax
     dPush eax
     ret
 
 ; TIMER primitive - Get the current TIMER value
 ; (-- ticks)
-dict_timer:
-    dd dict_over, XT_timer  ; Link, XT
-    db 0, 0x05, "TIMER", 0  ; Flags, Len, Name
-XT_timer:
-    call timer_get_ticks
+dictEntry over, timer, "TIMER", 5, 0
     dPush eax
+    mov eax, [timer_ticks]
     ret
 
 ; ADD primitive - Add top two stack elements
 ; (a b -- sum)
-dict_add:
-    dd dict_timer, XT_add   ; Link, XT
-    db 0, 0x01, "+", 0      ; Flags, Len, Name
-XT_add:
+dictEntry timer, add, "+", 1, 0
     dPop ebx
     getTOS eax
     add eax, ebx
@@ -1055,10 +1034,7 @@ XT_add:
 
 ; SUB primitive - Subtract top two stack elements
 ; (a b -- diff)
-dict_sub:
-    dd dict_add, XT_sub     ; Link, XT
-    db 0, 0x01, "-", 0      ; Flags, Len, Name
-XT_sub:
+dictEntry add, sub, "-", 1, 0
     dPop ebx
     getTOS eax
     sub eax, ebx
@@ -1067,10 +1043,7 @@ XT_sub:
 
 ; MULT primitive - Multiply top two stack elements
 ; (a b -- product)
-dict_mult:
-    dd dict_sub, XT_mult    ; Link, XT
-    db 0, 0x01, "*", 0      ; Flags, Len, Name
-XT_mult:
+dictEntry sub, mult, "*", 1, 0
     dPop ebx
     getTOS eax
     imul eax, ebx
@@ -1079,10 +1052,7 @@ XT_mult:
 
 ; DIV primitive - Divide top two stack elements
 ; (a b -- quotient)
-dict_div:
-    dd dict_mult, XT_div    ; Link, XT
-    db 0, 0x01, "/", 0      ; Flags, Len, Name
-XT_div:
+dictEntry mult, div, "/", 1, 0
     dPop ebx
     getTOS eax
     cdq                     ; Sign-extend EAX into EDX:EAX
@@ -1092,10 +1062,7 @@ XT_div:
 
 ; NUMBER? primitive - Check if string is a number
 ; ( str -- (num 1) | 0 )
-dict_numq:
-    dd dict_div, XT_numq    ; Link, XT
-    db 0, 7, "NUMBER?", 0   ; Flags, Len, Name
-XT_numq:
+dictEntry div, numq, "NUMBER?", 7, 0
     dPop esi
     call numq               ; Check if string in ESI is a number
     dPush eax               ; numq pushes the parsed number if valid
@@ -1103,10 +1070,7 @@ XT_numq:
 
 ; WORD primitive - parse the next word from >IN
 ; ( --a len )
-dict_word:
-    dd dict_numq, XT_word
-    db 0, 4, "WORD", 0      ; Parse the next word from >IN
-XT_word:
+dictEntry numq, word, "WORD", 4, 0
     mov ecx, 0              ; Length
     mov esi, [TO_IN]
     mov edi, WORD_START
@@ -1133,10 +1097,7 @@ XT_word:
 
 ; STRLEN primitive - Get string length
 ; ( str -- len )
-dict_slen:
-    dd dict_word, XT_slen   ; Link, XT
-    db 0, 6, "STRLEN", 0    ; Flags, Len, Name
-XT_slen:
+dictEntry word, slen, "STRLEN", 6, 0
     getTOS esi
     call strlen
     setTOS ecx
@@ -1144,20 +1105,14 @@ XT_slen:
 
 ; EMIT primitive - Output character on TOS
 ; ( ch -- )
-dict_emit:
-    dd dict_slen, XT_emit   ; Link, XT
-    db 0, 0x04, "EMIT", 0   ; Flags, Len, Name
-XT_emit:
+dictEntry slen, emit, "EMIT", 4, 0
     dPop eax
     call vga_ser_emit
     ret
 
 ; COMMA primitive - store TOS value at HERE, increment HERE by 4
 ; ( N-- )
-dict_comma:
-    dd dict_emit, XT_comma  ; Link, XT
-    db 0, 0x01, ",", 0      ; Flags, Len, Name
-XT_comma:
+dictEntry emit, comma, ",", 1, 0
     dPop eax
     mov edx, [HERE]         ; Get current HERE address
     mov [edx], eax          ; Store TOS value at HERE
@@ -1166,10 +1121,7 @@ XT_comma:
 
 ; CCOMMA primitive - store TOS byte at HERE, increment HERE by 1
 ; ( B-- )
-dict_ccomma:
-    dd dict_comma, XT_ccomma ; Link, XT
-    db 0, 0x02, "C,", 0      ; Flags, Len, Name
-XT_ccomma:
+dictEntry comma, ccomma, "C,", 2, 0
     dPop eax
     mov edx, [HERE]          ; Get current HERE address
     mov [edx], al            ; Store TOS byte at HERE
@@ -1178,20 +1130,14 @@ XT_ccomma:
 
 ; CR primitive - Output a carriage return/newline
 ; ( -- )
-dict_cr:
-    dd dict_ccomma, XT_cr   ; Link, XT
-    db 0, 0x02, "CR", 0     ; Flags, Len, Name
-XT_cr:
+dictEntry ccomma, cr, "CR", 2, 0
     mov al, 10              ; Newline character
     call vga_ser_emit
     ret
 
 ; WORDS primitive - output the words in the dictionary
 ; ( -- )
-dict_words:
-    dd dict_cr, XT_words    ; Link, XT (updated to link to dict_cr)
-    db 0, 0x05, "WORDS", 0  ; Flags, Len, Name
-XT_words:
+dictEntry cr, words, "WORDS", 5, 0
     mov eax, [LAST]         ; Start at most recently defined word
 .words_loop:
     cmp eax, 0              ; End of dictionary?

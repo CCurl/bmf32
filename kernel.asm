@@ -953,8 +953,7 @@ section '.data'
 ; Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
 ; Entry format: [Link:0-3][XT:4-7][Flags:8][Len:9][Name:10-?][NULL][XT/Code]
 
-; Create a dictionary entry for a primitive word
-; Usage: dPush eax    (or any 32-bit register)
+; Macro to create a dictionary entry
 macro dictEntry prev, nameId, nameStr, len, flgs {
 dict_##nameId:
     if prev eq 0

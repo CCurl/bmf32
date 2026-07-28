@@ -35,6 +35,8 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 ```
 .
 ├── kernel.asm       # Bootloader + kernel + drivers
+├── forth-dict.inc   # The Forth dictionary
+├── tests.inc        # Tests
 ├── linker.ld        # Memory layout script
 ├── Makefile         # Build automation
 ├── LICENSE          # License (MIT)
@@ -133,8 +135,8 @@ make run      # Build and run in QEMU window
 - `keyboard_has_data()` - Check if keyboard buffer has pending scancodes
 
 ### FORTH Dictionary & Primitives
-- **Dict pointer**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
-- **Entry format**: [Link(4)] [XT(4)] [Flags/Len(1)] [Name(variable)] [NULL] [Code]
+- **Dictionary Entry**: [Link(0:3)] [XT(4:7)] [Flags(8)] [Len(9)] [Name(10:n)] [NULL(n+1)] [Code(n+2:m)]
+- **Data stackr**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
 - **Stack macros**:
   - `dPush reg` - Push register onto data stack
   - `dPop reg` - Pop from data stack into register
@@ -155,47 +157,6 @@ qemu-system-i386 -kernel kernel.elf -m 32M -serial stdio
 # Without serial output:
 qemu-system-i386 -kernel kernel.elf -m 32M
 ```
-
-## Implemented Primitives
-
-**Stack Manipulation:**
-- [x] CELL - Push cell size (4)
-- [x] DUP - Duplicate TOS
-- [x] DROP - Remove TOS
-- [x] SWAP - Exchange TOS and NOS
-- [x] OVER - Copy NOS to TOS
-
-**Arithmetic:**
-- [x] \+ (ADD) - Add TOS and NOS
-- [x] \- (SUB) - Subtract TOS from NOS
-- [x] \* (MULT) - Multiply TOS and NOS
-- [x] / (DIV) - Signed divide NOS by TOS
-
-**I/O & Utility:**
-- [x] EMIT - Output character (to VGA + serial)
-- [x] CR - Output carriage return/newline
-- [x] KEY? - Check if keyboard buffer has data
-- [x] TIMER - Get current timer tick count
-- [x] WORDS - List all dictionary words
-- [x] NUMBER? - Parse string to integer ($hex, %binary, #decimal, 'char', -negative)
-- [x] WORD - Parse next word from input stream
-- [x] STRLEN - Get length of null-terminated string
-- [x] C, - Store byte at HERE, increment by 1
-- [x] , - Store cell at HERE, increment by 4
-
-## Next Steps (FORTH Implementation)
-
-**Roadmap for remaining FORTH:**
-
-1. **More stack primitives** - ROT, -ROT, NIP, TUCK, DEPTH, PICK, ROLL
-2. **Comparison** - <, >, =, <>, <=, >=, 0<, 0>, 0=
-3. **Memory access** - @, !, C@, C!, +!
-4. **Control flow** - IF, THEN, ELSE, BEGIN, UNTIL, LOOP, DO
-5. **FORTH I/O** - KEY, CR, SPACES, ACCEPT (read line)
-6. **Interpreter loop** - Token parsing, execute from dictionary
-7. **Word definition** - Colon definitions (: name ... ;)
-8. **Graphics** - PIXEL drawing using 4MB buffer
-9. **Optimizations** - JIT compilation, tail call optimization
 
 ## Debug Commands
 
@@ -218,13 +179,13 @@ objdump -s -j .multiboot kernel.elf | head -5
 
 - [x] Stack abstraction (EBP-based data stack)
 - [x] Dictionary infrastructure
-- [x] Core primitives (17 implemented)
+- [ ] Core primitives (in progress)
 - [x] Number parsing (numq with multiple bases)
 - [x] Dictionary lookup (case-insensitive)
-- [ ] FORTH interpreter loop not yet implemented
-- [ ] No scancode→ASCII conversion (raw scancodes in buffer)
+- [ ] FORTH interpreter loop
+- [ ] Scancode -> ASCII conversion (raw scancodes in buffer)
 - [ ] Graphics buffer allocated but unused
-- [ ] No disk support
+- [ ] Disk support
 
 ## Architecture Notes
 

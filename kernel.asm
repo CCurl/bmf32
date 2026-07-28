@@ -663,90 +663,10 @@ hex_to_string:
     pop eax
     ret
 
-
-; strlen - determine the length of a null-terminated string
-; Entry: ESI = pointer to string
-; Exit: ECX = length of string (not including null terminator)
-strlen:
-    xor ecx, ecx            ; ECX = length counter
-.strlen_loop:
-    mov al, [esi+ecx]
-    cmp al, 0
-    je .strlen_done
-    inc ecx
-    jmp .strlen_loop
-.strlen_done:
-    ret
-
 ; ============================================================================
-; SECTION: FORTH DICTIONARY & LOOKUP
-; ============================================================================
-
-; Dictionary lookup - find a word by name
-; Entry: ESI = pointer to name string
-; Exit: EAX = address of dictionary entry (or 0 if not found)
-; NOTE: Overwrites EAX, EBX, EDX, EDI
-dict_lookup:
-    call strlen             ; Get length of search string in ECX
-    push ecx                ; Save length on stack
-    mov eax, [LAST]         ; Start at most recently defined word
-    
-.search_loop:
-    cmp eax, 0              ; End of dictionary?
-    je .lookup_not_found
-    
-    ; Check length first: compare CL with length byte at [eax + 9]
-    mov cl, [esp]           ; Restore length into CL
-    mov bl, [eax + 9]       ; Length byte
-    cmp bl, cl              ; Compare lengths
-    jne .name_no_match      ; Length mismatch, try next entry
-    
-    ; Length matches, now compare name: [eax + 10] is the name field
-    mov ebx, eax
-    add ebx, 10             ; Point to name in entry
-    mov edi, esi            ; EDI is our search string pointer
-    
-.name_compare:
-    mov dl, [ebx]           ; DL = dict char
-    mov cl, [edi]           ; CL = search char
-    
-    ; Convert dict char (DL)
-    cmp dl, 'a'
-    jl .skip_dict_upper
-    cmp dl, 'z'
-    jg .skip_dict_upper
-    sub dl, 32              ; Convert to uppercase
-.skip_dict_upper:
-    
-    ; Convert search char (CL)
-    cmp cl, 'a'
-    jl .skip_search_upper
-    cmp cl, 'z'
-    jg .skip_search_upper
-    sub cl, 32              ; Convert to uppercase
-.skip_search_upper:
-    
-    cmp dl, cl
-    jne .name_no_match      ; Bytes don't match
-    
-    test dl, dl             ; Check for null terminator
-    je .lookup_found
-    
-    inc edi
-    inc ebx
-    jmp .name_compare
-    
-.name_no_match:
-    mov eax, [eax]          ; Follow link to previous entry
-    jmp .search_loop
-    
-.lookup_found:              ; EAX already contains 0 (not found)
-.lookup_not_found:          ; EAX already contains the entry address
-    pop ecx                 ; Clean up stack
-    ret
-
-; ============================================================================
+include 'util.inc'
 include 'forth-dict.inc'
+include 'tests.inc'
 ; ============================================================================
 
 ; ============================================================================
@@ -775,7 +695,6 @@ kernel_main:
     mov dword [BASE], 10
     mov dword [STATE], 0
 
-include 'tests.inc'          ; Include test routines
     call run_tests           ; Run tests
 
     ; Halt the CPU

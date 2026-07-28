@@ -35,6 +35,7 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 ```
 .
 ├── kernel.asm       # Bootloader + kernel + drivers
+├── util.inc         # Utility functions
 ├── forth-dict.inc   # The Forth dictionary
 ├── tests.inc        # Tests
 ├── linker.ld        # Memory layout script

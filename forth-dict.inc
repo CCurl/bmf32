@@ -1,4 +1,52 @@
 ; ============================================================================
+; Forth system
+; ============================================================================
+
+; Note: EBP = data stack pointer (grows downward)
+
+; ============================================================================
+; SECTION: MACROS
+; ============================================================================
+
+; Push a register onto the data stack (grows downward, EBP = data stack pointer)
+; Usage: dPush eax    (or any 32-bit register)
+macro dPush reg {
+    sub ebp, 4
+    mov [ebp], reg
+}
+
+; Pop a value from the data stack into a register
+; Usage: dPop eax     (or any 32-bit register)
+macro dPop reg {
+    mov reg, [ebp]
+    add ebp, 4
+}
+
+; Read top of stack into a register (non-destructive)
+; Usage: getTOS eax     (or any 32-bit register)
+macro getTOS reg {
+    mov reg, [ebp]
+}
+
+; Read next on stack (2nd element) into a register (non-destructive)
+; Usage: getNOS eax     (or any 32-bit register)
+macro getNOS reg {
+    mov reg, [ebp+4]
+}
+
+; Write to top of stack (non-destructive to SP)
+; Usage: setTOS eax     (or any 32-bit register)
+macro setTOS reg {
+    mov [ebp], reg
+}
+
+; Write to next on stack (2nd element, non-destructive to SP)
+; Usage: setNOS eax     (or any 32-bit register)
+macro setNOS reg {
+    mov [ebp+4], reg
+}
+
+; ============================================================================
 ; Forth dictionary entries - Start
 ; ============================================================================
 section '.data'
@@ -206,6 +254,166 @@ dictEntry cr, words, "WORDS", 5, 0
 
 ; TODO: Add more primitives
 
+; numq - Check if string is a number and convert to integer
+; Entry: ESI = pointer to string
+; Exit: EAX = 1 if valid number, 0 if not
+;       Pushes parsed integer to data stack if valid
+numq:
+    push ebx
+    push ecx
+    push edx
+    push edi
+    
+    ; Check for char literal: 'c' format
+    mov al, [esi]
+    cmp al, 39              ; 39 = ' (single quote)
+    jne .numq_check_prefix
+    
+    mov al, [esi + 2]
+    cmp al, 39              ; Check closing quote
+    jne .numq_check_prefix
+    
+    mov al, [esi + 3]
+    cmp al, 0               ; Check null terminator
+    jne .numq_check_prefix
+    
+    ; Valid char literal: push the character value
+    mov al, [esi + 1]
+    movzx eax, al           ; Zero-extend AL to EAX
+    dPush eax
+    mov eax, 1              ; Return success
+    jmp .numq_return
+    
+.numq_check_prefix:
+    cmp al, 0
+    je .numq_fail           ; Empty string, fail
+
+    ; Load base (default from BASE variable)
+    mov ebx, [BASE]         ; EBX = base
+    xor edx, edx            ; EDX = 0 (1 => isNeg)
+    
+    ; Check for % prefix (binary)
+    cmp al, '%'
+    jne .numq_check_hash
+    mov ebx, 2
+    inc esi
+    jmp .numq_parse_start   ; No negative sign for binary
+    
+.numq_check_hash:
+    ; Check for # prefix (decimal)
+    cmp al, '#'
+    jne .numq_check_dollar
+    mov ebx, 10
+    inc esi
+    jmp .numq_check_minus   ; Decimal allows negative sign
+    
+.numq_check_dollar:
+    ; Check for $ prefix (hex)
+    cmp al, '$'
+    jne .numq_check_minus
+    mov ebx, 16
+    inc esi
+    jmp .numq_parse_start   ; No negative sign check for hex
+    
+.numq_check_minus:
+    ; Check for minus sign (only if base == 10)
+    cmp ebx, 10
+    jne .numq_parse_start
+    
+    mov al, [esi]
+    cmp al, '-'
+    jne .numq_parse_start
+    mov edx, 1              ; Set negative flag
+    inc esi
+    
+.numq_parse_start:
+    ; Check if string is empty after prefix/minus
+    mov al, [esi]
+    cmp al, 0
+    je .numq_fail
+    
+    ; Initialize accumulator
+    xor ecx, ecx            ; ECX = accumulated number
+    
+.numq_loop:
+    mov al, [esi]
+    cmp al, 0
+    je .numq_done
+    
+    ; Convert uppercase to lowercase
+    cmp al, 'A'
+    jl .numq_char_ok
+    cmp al, 'Z'
+    jg .numq_char_ok
+    add al, 32              ; Convert to lowercase
+    
+.numq_char_ok:
+    ; Convert char to digit value (0-9 or 10-15 for a-f)
+    xor edi, edi            ; EDI = digit value
+    
+    ; Try 0-9
+    cmp al, '0'
+    jl .numq_fail
+    cmp al, '9'
+    jg .numq_try_letters
+    
+    sub al, '0'
+    movzx edi, al
+    jmp .numq_check_range
+    
+.numq_try_letters:
+    ; Try a-f
+    cmp al, 'a'
+    jl .numq_fail
+    cmp al, 'f'
+    jg .numq_fail
+    
+    sub al, 'a'
+    add al, 10
+    movzx edi, al
+    
+.numq_check_range:
+    ; Check if digit < base
+    cmp edi, ebx
+    jge .numq_fail
+    
+    ; Accumulate: n = n*base + digit
+    imul ecx, ebx           ; ECX = ECX * base
+    add ecx, edi            ; ECX = ECX + digit
+    
+    inc esi
+    jmp .numq_loop
+    
+.numq_done:
+    ; Apply sign if needed
+    test edx, edx
+    jz .numq_push_result
+    neg ecx
+    
+.numq_push_result:
+    dPush ecx
+    mov eax, 1
+    jmp .numq_return
+    
+.numq_fail:
+    xor eax, eax
+    
+.numq_return:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
 ; ============================================================================
-; Forth dictionary entries - End
+; Variables
 ; ============================================================================
+
+section '.data'
+
+; FORTH variables
+HERE: dd DICT_START             ; Next free address (grows UP)
+LAST: dd 0                      ; Most recent word (0 initially, will point to last defined)
+BASE: dd 10                     ; Number base (default 10)
+STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
+TO_IN: dd 0                     ; >IN - address of current input stream

@@ -1,3 +1,7 @@
+; ============================================================================
+; Tests
+; ============================================================================
+
 run_tests:
     call kernel_clear        ; Clear VGA screen
     mov esi, msg_started     ; Print startup message
@@ -281,3 +285,36 @@ test_word:
     pop ebx
     pop eax
     ret
+
+; ============================================================================
+; Test data
+; ============================================================================
+
+section '.data'
+
+; Test strings for numq
+msg_test: db 10, "Testing numq:", 10, 0
+msg_test_pass: db " => ", 0
+msg_test_fail: db " => FAIL", 10, 0
+
+test_str_1: db "'A'", 0          ; Char literal: should be 65
+test_str_2: db "$FF", 0          ; Hex: should be 255
+test_str_3: db "%1010", 0        ; Binary: should be 10
+test_str_4: db "#42", 0          ; Decimal: should be 42
+test_str_5: db "-99", 0          ; Negative: should be -99
+test_str_6: db "0", 0            ; Zero
+test_str_7: db "#XYZ", 0         ; Invalid: should fail
+
+; Test strings for dict_lookup
+msg_dict_test: db 10, "Testing dict_lookup:", 10, 0
+msg_dict_found: db " => FOUND at 0x", 0
+msg_dict_notfound: db " => NOT FOUND", 10, 0
+
+lookup_str_1: db "DUP", 0         ; Should find DUP
+lookup_str_2: db "dup", 0         ; Should find dup (case-insensitive)
+lookup_str_3: db "SWAP", 0        ; Should find SWAP
+lookup_str_4: db "NOTAWORD", 0    ; Should NOT find this
+
+; Test strings for WORD primitive
+msg_word_test: db 10, "Testing WORD:", 10, 0
+word_test_input_1: db "  hello  world!", 0 ; Leading spaces, should parse "hello"

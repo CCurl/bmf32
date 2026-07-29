@@ -50,19 +50,27 @@ macro setNOS reg {
 ; Forth dictionary entries - Start
 ; ============================================================================
 section '.data'
-; Format for a dictionary entry: [Link:0-3][XT:4-7][Flags:8][Len:9][Name:10-?][NULL][Code(XT)]
+
+; Name     Offset     Length
+; ----------------------------
+; Link     0 -> 3     4
+; XT       4 -> 7     4
+; Flags    8          1
+; Len      9          1
+; Name     10 -> n    variable
+; NULL     n+1        1
+; Code/XT  n+2        variable
 
 ; Macro to create a dictionary entry
-macro dictEntry prev, nameId, nameStr, len, flgs {
+macro dictEntry prev, nameId, name, len, flags {
 dict_##nameId:
     if prev eq 0
         dd 0   ; No previous word, link = 0
     else
-        dd dict_##prev   ; Link to previous word, XT
+        dd dict_##prev   ; Link to previous word
     end if
-    dd XT_##nameId   ; Link to previous word, XT
-    db flgs, len
-    db nameStr, 0       ; Flags, Length, Name, NULL
+    dd XT_##nameId
+    db flags, len, name, 0
 XT_##nameId:
 }
 
@@ -173,11 +181,10 @@ dictEntry numq, word, "WORD", 4, 0
     mov ecx, 0              ; Length
     mov esi, [TO_IN]
     mov edi, WORD_START
-    dPush edi
 .skip_ws:                   ; Skip leading whitespace
     mov al, [esi]
-    cmp al, 0               ; end of string?
-    je .done
+    test al, al             ; end of string?
+    jz .done
     cmp al, 32
     jg .collect_wd
     inc esi
@@ -191,18 +198,19 @@ dictEntry numq, word, "WORD", 4, 0
     jg .collect_wd
 .done:
     mov [TO_IN], esi
+    dPush edi
     dPush ecx
     ret
 
 ; STRLEN primitive - Get string length
 ; ( str -- len )
-dictEntry word, strlen, "STRLEN", 6, 0
+dictEntry word, strlen, "S-LEN", 6, 0
     getTOS esi
     xor ecx, ecx            ; ECX = length counter
 .loop:
     mov bl, [esi+ecx]
     test bl, bl
-    je .done
+    jz .done
     inc ecx
     jmp .loop
 .done:

@@ -304,7 +304,7 @@ dictEntry words, find, "FIND", 4, 0
 init_forth:
     ; Set LAST to the last defined word
     mov ebp, DATA_STK_BASE   ; Data stack pointer (EBP)
-    mov dword [LAST], dict_words
+    mov dword [LAST], dict_find
     mov dword [BASE], 10
     mov dword [STATE], 0
     ret

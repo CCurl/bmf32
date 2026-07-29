@@ -7,12 +7,11 @@ Currently runs under QEMU (the 32-bit x86 emulator) using the `-kernel` option.
 ## Features
 
 - **32-bit x86 protected mode**: Full x86-32 architecture support
-- **Pure Assembly (FASM)**: Entire kernel in single `.asm` file
+- **Pure Assembly (FASM)**: Only dependency is on an assembler
 - **VGA text console**: 80×25 text mode output (0xB8000)
 - **Serial output**: COM1 (0x3F8) for debugging/secondary output
 - **Interrupt system**: IDT + 8259 PIC with PS/2 keyboard handler
 - **PS/2 keyboard**: Ring buffer for scancode capture (IRQ1/INT 0x21)
-- **Memory layout**: 32 MB for FORTH (stacks, dictionary, graphics buffer)
 - **Direct kernel loading**: Boots with QEMU `-kernel` flag
 
 ## Quick Start
@@ -36,7 +35,7 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 .
 ├── kernel.asm       # Bootloader + kernel + drivers
 ├── util.inc         # Utility functions
-├── forth-dict.inc   # The Forth dictionary
+├── forth.inc        # The Forth system
 ├── tests.inc        # Tests
 ├── linker.ld        # Memory layout script
 ├── Makefile         # Build automation
@@ -74,16 +73,6 @@ make run      # Build and run in QEMU window
 0x000B8000  ├─────────────────────────────┤
             │ BIOS / System               │
 0x00000000  └─────────────────────────────┘
-```
-
-**Dictionary Entry Format:**
-```
-[Offset 0:3]   Link pointer to previous entry (4 bytes)
-[Offset 4:7]   Execution Token (XT) (4 bytes)
-[Offset 8:8]   Flags (1 byte)  
-[Offset 9:9]   Length (1 byte)  
-[Offset 10:n]  Name, NULL-terminated (variable length)
-[Offset n+1:m] Inline code (XT, variable size)
 ```
 
 ## Kernel Components
@@ -124,7 +113,7 @@ make run      # Build and run in QEMU window
 - **Status check**: Port 0x64 bit 0 before reading 0x60
 - **Init**: Disables/re-enables controller, enables IRQ1
 
-### Utility Functions
+## Utility Functions
 - `hex_to_string(EAX, ESI)` - Convert 32-bit to "0xXXXXXXXX"
 - `idt_set_entry(EAX, BL, CL)` - Configure IDT entry
 - `init_idt()` - Initialize IDT, load with LIDT
@@ -135,8 +124,17 @@ make run      # Build and run in QEMU window
 - `keyboard_read()` - Non-blocking read from keyboard buffer
 - `keyboard_has_data()` - Check if keyboard buffer has pending scancodes
 
-### FORTH Dictionary & Primitives
-- **Dictionary Entry**: [Link(0:3)] [XT(4:7)] [Flags(8)] [Len(9)] [Name(10:n)] [NULL(n+1)] [Code(n+2:m)]
+## FORTH Dictionary & Primitives
+**Dictionary Entry Format:**
+```
+[Offset 0:3]   Link pointer to previous entry (4 bytes)
+[Offset 4:7]   Execution Token (XT) (4 bytes)
+[Offset 8:8]   Flags (1 byte)  
+[Offset 9:9]   Length (1 byte)  
+[Offset 10:n]  Name, NULL-terminated (variable length)
+[Offset n+1:m] Inline code (XT, variable size)
+```
+
 - **Data stackr**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
 - **Stack macros**:
   - `dPush reg` - Push register onto data stack

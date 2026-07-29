@@ -8,36 +8,36 @@
 ; SECTION: MACROS
 ; ============================================================================
 
-; Push a register onto the data stack (grows downward, EBP = data stack pointer)
-; Usage: dPush eax    (or any 32-bit register)
-macro dPush reg {
-    sub ebp, 4
-    mov [ebp], reg
-}
-
-; Pop a value from the data stack into a register
-; Usage: dPop eax     (or any 32-bit register)
-macro dPop reg {
-    mov reg, [ebp]
-    add ebp, 4
-}
-
 ; Read top of stack into a register (non-destructive)
 ; Usage: getTOS eax     (or any 32-bit register)
 macro getTOS reg {
     mov reg, [ebp]
 }
 
-; Read next on stack (2nd element) into a register (non-destructive)
-; Usage: getNOS eax     (or any 32-bit register)
-macro getNOS reg {
-    mov reg, [ebp+4]
-}
-
 ; Write to top of stack (non-destructive to SP)
 ; Usage: setTOS eax     (or any 32-bit register)
 macro setTOS reg {
     mov [ebp], reg
+}
+
+; Push a register onto the data stack (grows downward, EBP = data stack pointer)
+; Usage: dPush eax    (or any 32-bit register)
+macro dPush reg {
+    sub ebp, 4
+    setTOS reg
+}
+
+; Pop a value from the data stack into a register
+; Usage: dPop eax     (or any 32-bit register)
+macro dPop reg {
+    getTOS reg
+    add ebp, 4
+}
+
+; Read next on stack (2nd element) into a register (non-destructive)
+; Usage: getNOS eax     (or any 32-bit register)
+macro getNOS reg {
+    mov reg, [ebp+4]
 }
 
 ; Write to next on stack (2nd element, non-destructive to SP)
@@ -69,13 +69,14 @@ XT_##nameId:
 ; CELL primitive - Push cell size onto stack
 ; (-- cell-size)
 dictEntry 0, cell, "CELL", 4, 0
-    dPush eax
     mov eax, 4              ; Cell size is 4 bytes
+    dPush eax
     ret
 
 ; DUP primitive - Duplicate top of stack
 ; (a -- a a)
 dictEntry cell, dup, "DUP", 3, 0
+    getTOS eax
     dPush eax
     ret
 
@@ -89,13 +90,13 @@ dictEntry dup, drop, "DROP", 4, 0
 ; Returns 1 (true) or 0 (false) on data stack
 ; (-- flag)
 dictEntry drop, keyq, "KEY?", 4, 0
-    dPush eax
     xor eax, eax             ; Default to 0 (no data)
     mov ebx, [keyboard_tail]
     cmp ebx, [keyboard_head]
     je .keyq_exit            ; If tail == head, buffer is empty
     inc eax                  ; Return 1 if data available
 .keyq_exit:                  ; If tail == head, buffer is empty
+    dPush eax
     ret
 
 ; SWAP primitive - Exchange top two stack elements
@@ -117,8 +118,8 @@ dictEntry swap, over, "OVER", 4, 0
 ; TIMER primitive - Get the current TIMER value
 ; (-- ticks)
 dictEntry over, timer, "TIMER", 5, 0
-    dPush eax
     mov eax, [timer_ticks]
+    dPush eax
     ret
 
 ; ADD primitive - Add top two stack elements
@@ -195,15 +196,22 @@ dictEntry numq, word, "WORD", 4, 0
 
 ; STRLEN primitive - Get string length
 ; ( str -- len )
-dictEntry word, slen, "STRLEN", 6, 0
+dictEntry word, strlen, "STRLEN", 6, 0
     getTOS esi
-    call strlen
+    xor ecx, ecx            ; ECX = length counter
+.loop:
+    mov bl, [esi+ecx]
+    test bl, bl
+    je .done
+    inc ecx
+    jmp .loop
+.done:
     setTOS ecx
     ret
 
 ; EMIT primitive - Output character on TOS
 ; ( ch -- )
-dictEntry slen, emit, "EMIT", 4, 0
+dictEntry strlen, emit, "EMIT", 4, 0
     dPop eax
     call vga_ser_emit
     ret
@@ -250,6 +258,55 @@ dictEntry cr, words, "WORDS", 5, 0
     mov eax, [eax]          ; Next word in dictionary
     jmp .words_loop
 .words_done:
+    ret
+
+; Dictionary lookup - find a word by name
+; (str -- addr | 0)
+dictEntry words, find, "FIND", 4, 0
+    call XT_dup             ; Get length of search string in ECX
+    call XT_strlen
+    dPop ecx                ; ECX = length of search string
+    getTOS esi              ; Get pointer to name string from TOS
+    push ecx                ; Save length on stack
+    mov eax, [LAST]         ; Start at most recently defined word
+    
+.search_loop:
+    test eax, eax           ; End of dictionary?
+    je .find_exit
+    
+    ; Check length first: compare CL with length byte at [eax + 9]
+    mov cl, [esp]           ; Restore length into CL
+    mov bl, [eax + 9]       ; Length byte
+    cmp bl, cl              ; Compare lengths
+    jne .name_no_match      ; Length mismatch, try next entry
+    
+    ; Length matches, now compare name: [eax + 10] is the name field
+    mov edi, eax
+    add edi, 10             ; Point to name in entry
+
+    call streq              ; Compare search string (ESI) with entry name (EDI)
+    jz .find_exit           ; If equal (ZF=1), found the word
+
+.name_no_match:
+    mov eax, [eax]          ; Follow link to previous entry
+    jmp .search_loop
+    
+; EAX already contains either the address or 0 (not found)
+.find_exit:           
+    setTOS eax
+    pop ecx                 ; Clean up stack
+    ret
+
+; ============================================================================
+; Forth dictionary entries - End
+; ============================================================================
+
+init_forth:
+    ; Set LAST to the last defined word
+    mov ebp, DATA_STK_BASE   ; Data stack pointer (EBP)
+    mov dword [LAST], dict_words
+    mov dword [BASE], 10
+    mov dword [STATE], 0
     ret
 
 ; numq - Check if string is a number and convert to integer
@@ -401,69 +458,6 @@ numq:
     pop edx
     pop ecx
     pop ebx
-    ret
-
-; Dictionary lookup - find a word by name
-; Entry: ESI = pointer to name string
-; Exit: EAX = address of dictionary entry (or 0 if not found)
-; NOTE: Overwrites EAX, EBX, EDX, EDI
-dict_lookup:
-    call strlen             ; Get length of search string in ECX
-    push ecx                ; Save length on stack
-    mov eax, [LAST]         ; Start at most recently defined word
-    
-.search_loop:
-    cmp eax, 0              ; End of dictionary?
-    je .lookup_not_found
-    
-    ; Check length first: compare CL with length byte at [eax + 9]
-    mov cl, [esp]           ; Restore length into CL
-    mov bl, [eax + 9]       ; Length byte
-    cmp bl, cl              ; Compare lengths
-    jne .name_no_match      ; Length mismatch, try next entry
-    
-    ; Length matches, now compare name: [eax + 10] is the name field
-    mov ebx, eax
-    add ebx, 10             ; Point to name in entry
-    mov edi, esi            ; EDI is our search string pointer
-    
-.name_compare:
-    mov dl, [ebx]           ; DL = dict char
-    mov cl, [edi]           ; CL = search char
-    
-    ; Convert dict char (DL)
-    cmp dl, 'a'
-    jl .skip_dict_upper
-    cmp dl, 'z'
-    jg .skip_dict_upper
-    sub dl, 32              ; Convert to uppercase
-.skip_dict_upper:
-    
-    ; Convert search char (CL)
-    cmp cl, 'a'
-    jl .skip_search_upper
-    cmp cl, 'z'
-    jg .skip_search_upper
-    sub cl, 32              ; Convert to uppercase
-.skip_search_upper:
-    
-    cmp dl, cl
-    jne .name_no_match      ; Bytes don't match
-    
-    test dl, dl             ; Check for null terminator
-    je .lookup_found
-    
-    inc edi
-    inc ebx
-    jmp .name_compare
-    
-.name_no_match:
-    mov eax, [eax]          ; Follow link to previous entry
-    jmp .search_loop
-    
-.lookup_found:              ; EAX already contains 0 (not found)
-.lookup_not_found:          ; EAX already contains the entry address
-    pop ecx                 ; Clean up stack
     ret
 
 ; ============================================================================

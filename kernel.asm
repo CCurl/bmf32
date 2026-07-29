@@ -620,50 +620,6 @@ timer_get_ticks:
     ret
 
 ; ============================================================================
-; SECTION: UTILITY FUNCTIONS
-; ============================================================================
-; Entry: EAX = number to convert, ESI = buffer (11+ bytes), ECX, width
-; Exit: ESI points to hex string "0xXXXXXXXX\0"
-hex_to_string:
-    push eax
-    push ebx
-    push ecx
-    push esi
-    
-    mov byte [esi], '0'
-    mov byte [esi + 1], 'x'
-    add esi, 2
-
-    cmp ecx, 8
-    jle .hex_loop
-    mov ecx, 8              ; Limit to 8 hex digits for 32-bit number
-    
-.hex_loop:
-    mov ebx, eax
-    shr ebx, 28             ; get top 4 bits
-    and ebx, 0x0F
-    
-    cmp bl, 9
-    jle .hex_digit
-    add bl, 7               ; A-F
-.hex_digit:
-    add bl, '0'
-    mov [esi], bl
-    inc esi
-    
-    shl eax, 4              ; shift left by 4 bits
-    dec ecx
-    jnz .hex_loop
-    
-    mov byte [esi], 0       ; null terminate
-    
-    pop esi
-    pop ecx
-    pop ebx
-    pop eax
-    ret
-
-; ============================================================================
 include 'util.inc'
 include 'forth-dict.inc'
 include 'tests.inc'
@@ -687,14 +643,8 @@ kernel_main:
     sti                      ; Enable interrupts
     
     ; Initialize other stuff
-    mov ebp, DATA_STK_BASE   ; Data stack pointer (EBP)
     call init_serial         ; Serial port
-    
-    ; Set LAST to the last defined word
-    mov dword [LAST], dict_words
-    mov dword [BASE], 10
-    mov dword [STATE], 0
-
+    call init_forth          ; Initialize FORTH dictionary and state
     call run_tests           ; Run tests
 
     ; Halt the CPU

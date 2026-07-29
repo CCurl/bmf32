@@ -97,7 +97,9 @@ test_dict_case:
     push esi
     
     call vga_ser_write          ; Print test string
-    call dict_lookup            ; Lookup word
+    dPush esi                   ; Push string pointer for dict_lookup
+    call XT_find                ; Lookup word
+    dPop eax                    ; Get result
     test eax, eax
     jz .dict_case_not_found
     
@@ -197,20 +199,8 @@ test_dict_lookup:
     mov esi, lookup_str_3
     call test_dict_case
     
-    ; Test 4: should NOT find "NOTAWORD"
     mov esi, lookup_str_4
-    call vga_ser_write
-    call dict_lookup
-    test eax, eax
-    jz .dict_correctly_not_found
-    
-    mov esi, msg_dict_found
-    call vga_ser_write              ; Incorrectly found
-    jmp .test_dict_done
-    
-.dict_correctly_not_found:
-    mov esi, msg_dict_notfound
-    call vga_ser_write              ; Correctly not found
+    call test_dict_case
     
 .test_dict_done:
     pop edi

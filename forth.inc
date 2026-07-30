@@ -15,23 +15,29 @@ macro getTOS reg {
 }
 
 ; Write to top of stack (non-destructive to SP)
-; Usage: setTOS eax     (or any 32-bit register)
+; Usage: setTOS eax     (or any 32-bit value)
 macro setTOS reg {
-    mov [ebp], reg
+    mov DWORD [ebp], reg
 }
 
-; Push a register onto the data stack (grows downward, EBP = data stack pointer)
-; Usage: dPush eax    (or any 32-bit register)
+; Push a value onto the data stack (grows downward, EBP = data stack pointer)
+; Usage: dPush eax    (or any 32-bit value)
 macro dPush reg {
     sub ebp, 4
     setTOS reg
+}
+
+; Drop the value from the data stack
+; Usage: dDrop (no operands)
+macro dDrop {
+    add ebp, 4
 }
 
 ; Pop a value from the data stack into a register
 ; Usage: dPop eax     (or any 32-bit register)
 macro dPop reg {
     getTOS reg
-    add ebp, 4
+    dDrop
 }
 
 ; Read next on stack (2nd element) into a register (non-destructive)
@@ -43,7 +49,7 @@ macro getNOS reg {
 ; Write to next on stack (2nd element, non-destructive to SP)
 ; Usage: setNOS eax     (or any 32-bit register)
 macro setNOS reg {
-    mov [ebp+4], reg
+    mov DWORD [ebp+4], reg
 }
 
 ; ============================================================================
@@ -77,8 +83,7 @@ XT_##nameId:
 ; CELL primitive - Push cell size onto stack
 ; (-- cell-size)
 dictEntry 0, cell, "CELL", 4, 0
-    mov eax, 4              ; Cell size is 4 bytes
-    dPush eax
+    dPush 4
     ret
 
 ; DUP primitive - Duplicate top of stack
@@ -91,20 +96,19 @@ dictEntry cell, dup, "DUP", 3, 0
 ; DROP primitive - Remove top of stack
 ; (a b -- a)
 dictEntry dup, drop, "DROP", 4, 0
-    dPop eax
+    dDrop
     ret
 
 ; KEY? primitive - Check if keyboard buffer has data
 ; Returns 1 (true) or 0 (false) on data stack
 ; (-- flag)
 dictEntry drop, keyq, "KEY?", 4, 0
-    xor eax, eax             ; Default to 0 (no data)
+    dPush 0                  ; Default to 0 (no data)
     mov ebx, [keyboard_tail]
     cmp ebx, [keyboard_head]
     je .keyq_exit            ; If tail == head, buffer is empty
-    inc eax                  ; Return 1 if data available
+    setTOS 1                 ; Return 1 if data available
 .keyq_exit:                  ; If tail == head, buffer is empty
-    dPush eax
     ret
 
 ; SWAP primitive - Exchange top two stack elements
@@ -202,9 +206,9 @@ dictEntry numq, word, "WORD", 4, 0
     dPush ecx
     ret
 
-; STRLEN primitive - Get string length
+; S-LEN primitive - Get string length
 ; ( str -- len )
-dictEntry word, strlen, "S-LEN", 6, 0
+dictEntry word, strlen, "S-LEN", 5, 0
     getTOS esi
     xor ecx, ecx            ; ECX = length counter
 .loop:
@@ -217,9 +221,21 @@ dictEntry word, strlen, "S-LEN", 6, 0
     setTOS ecx
     ret
 
+; S-EQ primitive - Compare two strings for equality
+; ( s1 s2 -- f )
+dictEntry strlen, streq, "S-EQ", 4, 0
+    dPop esi                 ; string 2
+    getTOS edi               ; string 1
+    setTOS 0                 ; Default to 0 (not equal)
+    call streq
+    jnz .exit
+    setTOS 1                 ; Strings are equal
+.exit:
+    ret
+
 ; EMIT primitive - Output character on TOS
 ; ( ch -- )
-dictEntry strlen, emit, "EMIT", 4, 0
+dictEntry streq, emit, "EMIT", 4, 0
     dPop eax
     call vga_ser_emit
     ret
@@ -328,29 +344,26 @@ numq:
     push edi
     
     ; Check for char literal: 'c' format
-    mov al, [esi]
+    mov ax, [esi]
+    mov bx, [esi+2]
+
+    test al, al             ; Empty string? fail
+    jz .numq_fail
+
     cmp al, 39              ; 39 = ' (single quote)
     jne .numq_check_prefix
     
-    mov al, [esi + 2]
-    cmp al, 39              ; Check closing quote
-    jne .numq_check_prefix
-    
-    mov al, [esi + 3]
-    cmp al, 0               ; Check null terminator
-    jne .numq_check_prefix
+    cmp bl, 39              ; Check closing quote
+    jne .numq_fail          ; Not a valid char literal if not closed
+
+    test bh, bh             ; Check null terminator
+    jnz .numq_fail          ; Not a valid char literal if not null-terminated
     
     ; Valid char literal: push the character value
-    mov al, [esi + 1]
-    movzx eax, al           ; Zero-extend AL to EAX
-    dPush eax
-    mov eax, 1              ; Return success
-    jmp .numq_return
+    movzx ecx, ah           ; Zero-extend AH to ECX
+    jmp .numq_push_result
     
 .numq_check_prefix:
-    cmp al, 0
-    je .numq_fail           ; Empty string, fail
-
     ; Load base (default from BASE variable)
     mov ebx, [BASE]         ; EBX = base
     xor edx, edx            ; EDX = 0 (1 => isNeg)
@@ -392,16 +405,16 @@ numq:
 .numq_parse_start:
     ; Check if string is empty after prefix/minus
     mov al, [esi]
-    cmp al, 0
-    je .numq_fail
+    test al, al
+    jz .numq_fail
     
     ; Initialize accumulator
     xor ecx, ecx            ; ECX = accumulated number
     
 .numq_loop:
     mov al, [esi]
-    cmp al, 0
-    je .numq_done
+    test al, al
+    jz .numq_done
     
     ; Convert uppercase to lowercase
     cmp al, 'A'

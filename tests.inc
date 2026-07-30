@@ -3,22 +3,6 @@
 ; ============================================================================
 
 run_tests:
-    call kernel_clear        ; Clear VGA screen
-    mov esi, msg_started     ; Print startup message
-    call vga_ser_write
-
-    mov esi, msg_magic       ; Print magic number
-    call vga_ser_write
-
-    ; Load and display the multiboot magic number
-    mov eax, [multiboot_magic]
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, hex_buffer
-    call vga_ser_write
-
-    call XT_cr
     call XT_cr
     call XT_words            ; Print dictionary words
     call XT_cr
@@ -28,9 +12,6 @@ run_tests:
     call test_dict_lookup
     call test_word
     
-    ; Print completion message
-    mov esi, msg_complete
-    call vga_ser_write
     ret
 
 ; ============================================================================

@@ -621,7 +621,7 @@ timer_get_ticks:
 
 ; ============================================================================
 include 'util.inc'
-include 'forth-dict.inc'
+include 'forth.inc'
 include 'tests.inc'
 ; ============================================================================
 
@@ -644,12 +644,19 @@ kernel_main:
     
     ; Initialize other stuff
     call init_serial         ; Serial port
+
+    call kernel_clear        ; Clear VGA screen
+    mov esi, msg_started
+    call vga_ser_write       ; Print "Kernel started!" to VGA and serial
+
     call init_forth          ; Initialize FORTH dictionary and state
-    call run_tests           ; Run tests
+    call run_tests           ; Run tests - replace with actual FORTH interpreter loop
 
     ; Halt the CPU
+    mov esi, msg_halt
+    call vga_ser_write       ; Print "Halting..." to VGA and serial
 .kernel_halt:
-    cli
+    cli                      ; Disable interrupts
     hlt
     jmp .kernel_halt
 
@@ -659,6 +666,5 @@ kernel_main:
 
 section '.data'
 msg_started: db "Kernel started!", 10, 0
-msg_magic: db "Magic: ", 0
-msg_complete: db 10, "Boot complete! Halting...", 10, 0
+msg_halt: db 10, "Halting.", 10, 0
 hex_buffer: db "0x00000000", 0

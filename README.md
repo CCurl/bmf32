@@ -124,25 +124,27 @@ make run      # Build and run in QEMU window
 - `keyboard_read()` - Non-blocking read from keyboard buffer
 - `keyboard_has_data()` - Check if keyboard buffer has pending scancodes
 
-## FORTH Dictionary & Primitives
+## FORTH System
 **Dictionary Entry Format:**
 ```
 [Offset 0:3]   Link pointer to previous entry (4 bytes)
 [Offset 4:7]   Execution Token (XT) (4 bytes)
-[Offset 8:8]   Flags (1 byte)  
-[Offset 9:9]   Length (1 byte)  
-[Offset 10:n]  Name, NULL-terminated (variable length)
-[Offset n+1:m] Inline code (XT, variable size)
+[Offset 8]     Flags (1 byte)  
+[Offset 9]     Length (1 byte)  
+[Offset 10:n]  Name (variable length)
+[Offset n+1]   NULL (1 byte)
+[Offset n+2:m] Inline code (XT, variable size)
 ```
 
-- **Data stackr**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
+- **Data stack**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
 - **Stack macros**:
-  - `dPush reg` - Push register onto data stack
-  - `dPop reg` - Pop from data stack into register
+  - `dPush val` - Push a value onto the data stack
+  - `dPop reg` - Pop from data stack into a register
+  - `dDrop` - Drop the top of stack
   - `getTOS reg` - Read top of stack (non-destructive)
   - `getNOS reg` - Read 2nd element (non-destructive)
-  - `setTOS reg` - Write top of stack
-  - `setNOS reg` - Write 2nd element
+  - `setTOS val` - Set top of stack
+  - `setNOS val` - Set 2nd element
 
 ## Running
 
@@ -196,15 +198,14 @@ objdump -s -j .multiboot kernel.elf | head -5
 - Perfect for bare metal + FORTH experimentation
 
 **Register conventions:**
-- EAX, EDX: Return values / scratch
-- ESI: String pointer (calls)
-- EBX, ECX: General purpose
+- EAX, EBX, ECX, EDX: scratch
+- ESI, EDI: String pointers / scratch
 - ESP: Return stack (Forth and x86 stack calls/returns)
 - EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_BASE`)
 
 **Calling convention:**
-- Return via RET (pops EIP)
 - No STDCALL (manual stack management)
+- Return/Exit via RET (Subroutine threading)
 
 ## Tools Used
 

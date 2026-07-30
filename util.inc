@@ -3,7 +3,7 @@
 ; ============================================================================
 
 ; streq - compare two null-terminated strings
-; Entry: ESI = address of first string, EDI = address of second string
+; Entry: ESI = pointer to first string, EDI = pointer to second string
 ; Exit: ZF = 1 if equal, ZF = 0 if not equal
 streq:
     push ebx
@@ -16,15 +16,16 @@ streq:
     jne .exit               ; Bytes don't match
 
     test bl, bl             ; Check for null terminator
-    je .exit
+    jz .exit
     
-    inc ecx
+    inc ecx                 ; Next character
     jmp .compare
     
 .exit:
     pop ecx
     pop ebx
     ret
+
 
 ; hex_to_string - convert a number to a hex string
 ; Entry: EAX = number to convert, ESI = buffer (11+ bytes), ECX, width

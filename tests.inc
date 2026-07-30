@@ -145,9 +145,6 @@ test_numq:
     
 .test_numq_correctly_failed:
     call print_fail              ; Correctly failed
-    mov esi, msg_test_pass
-    call vga_ser_write
-    call XT_cr
     
 .test_numq_done:
     pop edi
@@ -278,7 +275,7 @@ test_str_7: db "#XYZ", 0         ; Invalid: should fail
 
 ; Test strings for dict_lookup
 msg_dict_test: db 10, "Testing dict_lookup:", 10, 0
-msg_dict_found: db " => FOUND at 0x", 0
+msg_dict_found: db " => FOUND", 0
 msg_dict_notfound: db " => NOT FOUND", 10, 0
 
 lookup_str_1: db "DUP", 0         ; Should find DUP

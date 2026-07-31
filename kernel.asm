@@ -650,7 +650,7 @@ kernel_main:
     call vga_ser_write       ; Print "Kernel started!" to VGA and serial
 
     call init_forth          ; Initialize FORTH dictionary and state
-    call run_tests           ; Run tests - replace with actual FORTH interpreter loop
+    call run_forth           ; Run the Forth system
 
     ; Halt the CPU
     mov esi, msg_halt

@@ -55,7 +55,9 @@ test_numq_case:
     push esi
     
     call vga_ser_write          ; Print test string
-    call numq                   ; Parse string
+    dPush esi                   ; Push test string pointer onto stack for numq
+    call XT_numq                ; Parse string
+    dPop eax
     test eax, eax
     jz .numq_case_fail
     
@@ -136,15 +138,18 @@ test_numq:
     
     ; Test 7: #XYZ (invalid - should fail)
     mov esi, test_str_7
-    call vga_ser_write
-    call numq
-    test eax, eax
-    jz .test_numq_correctly_failed
-    call print_fail              ; Incorrectly succeeded
-    jmp .test_numq_done
+    call test_numq_case
+    ; call vga_ser_write
+    ; dPush esi                    ; Push test string pointer
+    ; call XT_numq
+    ; dPop eax                     ; Get result from numq
+    ; test eax, eax
+    ; jz .test_numq_correctly_failed
+    ; call print_fail              ; Incorrectly succeeded
+    ; jmp .test_numq_done
     
-.test_numq_correctly_failed:
-    call print_fail              ; Correctly failed
+;.test_numq_correctly_failed:
+;    call print_fail              ; Correctly failed
     
 .test_numq_done:
     pop edi

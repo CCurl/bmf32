@@ -67,42 +67,41 @@ section '.data'
 ; NULL     n+1        1
 ; Code/XT  n+2        variable
 
+last_de equ 0
+
 ; Macro to create a dictionary entry
-macro dictEntry prev, nameId, name, len, flags {
+macro dictEntry nameId, name, len, flags {
 dict_##nameId:
-    if prev eq 0
-        dd 0   ; No previous word, link = 0
-    else
-        dd dict_##prev   ; Link to previous word
-    end if
+    dd last_de
     dd XT_##nameId
     db flags, len, name, 0
+    last_de equ dict_##nameId
 XT_##nameId:
 }
 
 ; CELL primitive - Push cell size onto stack
 ; (-- cell-size)
-dictEntry 0, cell, "CELL", 4, 0
+dictEntry cell, "CELL", 4, 0
     dPush 4
     ret
 
 ; DUP primitive - Duplicate top of stack
 ; (a -- a a)
-dictEntry cell, dup, "DUP", 3, 0
+dictEntry dup, "DUP", 3, 0
     getTOS eax
     dPush eax
     ret
 
 ; DROP primitive - Remove top of stack
 ; (a b -- a)
-dictEntry dup, drop, "DROP", 4, 0
+dictEntry drop, "DROP", 4, 0
     dDrop
     ret
 
 ; KEY? primitive - Check if keyboard buffer has data
 ; Returns 1 (true) or 0 (false) on data stack
 ; (-- flag)
-dictEntry drop, keyq, "KEY?", 4, 0
+dictEntry keyq, "KEY?", 4, 0
     dPush 0                  ; Default to 0 (no data)
     mov ebx, [keyboard_tail]
     cmp ebx, [keyboard_head]
@@ -113,7 +112,7 @@ dictEntry drop, keyq, "KEY?", 4, 0
 
 ; SWAP primitive - Exchange top two stack elements
 ; (a b -- b a)
-dictEntry keyq, swap, "SWAP", 4, 0
+dictEntry swap, "SWAP", 4, 0
     getTOS eax
     getNOS ebx
     setTOS ebx
@@ -122,21 +121,21 @@ dictEntry keyq, swap, "SWAP", 4, 0
 
 ; OVER primitive - push NOS
 ; (a b -- a b a)
-dictEntry swap, over, "OVER", 4, 0
+dictEntry over, "OVER", 4, 0
     getNOS eax
     dPush eax
     ret
 
 ; TIMER primitive - Get the current TIMER value
 ; (-- ticks)
-dictEntry over, timer, "TIMER", 5, 0
+dictEntry timer, "TIMER", 5, 0
     mov eax, [timer_ticks]
     dPush eax
     ret
 
 ; ADD primitive - Add top two stack elements
 ; (a b -- sum)
-dictEntry timer, add, "+", 1, 0
+dictEntry add, "+", 1, 0
     dPop ebx
     getTOS eax
     add eax, ebx
@@ -145,7 +144,7 @@ dictEntry timer, add, "+", 1, 0
 
 ; SUB primitive - Subtract top two stack elements
 ; (a b -- diff)
-dictEntry add, sub, "-", 1, 0
+dictEntry sub, "-", 1, 0
     dPop ebx
     getTOS eax
     sub eax, ebx
@@ -154,7 +153,7 @@ dictEntry add, sub, "-", 1, 0
 
 ; MULT primitive - Multiply top two stack elements
 ; (a b -- product)
-dictEntry sub, mult, "*", 1, 0
+dictEntry mult, "*", 1, 0
     dPop ebx
     getTOS eax
     imul eax, ebx
@@ -163,7 +162,7 @@ dictEntry sub, mult, "*", 1, 0
 
 ; DIV primitive - Divide top two stack elements
 ; (a b -- quotient)
-dictEntry mult, div, "/", 1, 0
+dictEntry div, "/", 1, 0
     dPop ebx
     getTOS eax
     cdq                     ; Sign-extend EAX into EDX:EAX
@@ -173,7 +172,7 @@ dictEntry mult, div, "/", 1, 0
 
 ; NUMBER? primitive - Check if string is a number
 ; ( str -- (num 1) | 0 )
-dictEntry div, numq, "NUMBER?", 7, 0
+dictEntry numq, "NUMBER?", 7, 0
     dPop esi
     call numq               ; Check if string in ESI is a number
     dPush eax               ; numq pushes the parsed number if valid
@@ -181,7 +180,7 @@ dictEntry div, numq, "NUMBER?", 7, 0
 
 ; WORD primitive - parse the next word from >IN
 ; ( --a len )
-dictEntry numq, word, "WORD", 4, 0
+dictEntry word, "WORD", 4, 0
     mov ecx, 0              ; Length
     mov esi, [TO_IN]
     mov edi, WORD_START
@@ -208,7 +207,7 @@ dictEntry numq, word, "WORD", 4, 0
 
 ; S-LEN primitive - Get string length
 ; ( str -- len )
-dictEntry word, strlen, "S-LEN", 5, 0
+dictEntry strlen, "S-LEN", 5, 0
     getTOS esi
     xor ecx, ecx            ; ECX = length counter
 .loop:
@@ -223,7 +222,7 @@ dictEntry word, strlen, "S-LEN", 5, 0
 
 ; S-EQ primitive - Compare two strings for equality
 ; ( s1 s2 -- f )
-dictEntry strlen, streq, "S-EQ", 4, 0
+dictEntry streq, "S-EQ", 4, 0
     dPop esi                 ; string 2
     getTOS edi               ; string 1
     setTOS 0                 ; Default to 0 (not equal)
@@ -235,14 +234,14 @@ dictEntry strlen, streq, "S-EQ", 4, 0
 
 ; EMIT primitive - Output character on TOS
 ; ( ch -- )
-dictEntry streq, emit, "EMIT", 4, 0
+dictEntry emit, "EMIT", 4, 0
     dPop eax
     call vga_ser_emit
     ret
 
 ; COMMA primitive - store TOS value at HERE, increment HERE by 4
 ; ( N-- )
-dictEntry emit, comma, ",", 1, 0
+dictEntry comma, ",", 1, 0
     dPop eax
     mov edx, [HERE]         ; Get current HERE address
     mov [edx], eax          ; Store TOS value at HERE
@@ -251,7 +250,7 @@ dictEntry emit, comma, ",", 1, 0
 
 ; CCOMMA primitive - store TOS byte at HERE, increment HERE by 1
 ; ( B-- )
-dictEntry comma, ccomma, "C,", 2, 0
+dictEntry ccomma, "C,", 2, 0
     dPop eax
     mov edx, [HERE]          ; Get current HERE address
     mov [edx], al            ; Store TOS byte at HERE
@@ -260,14 +259,14 @@ dictEntry comma, ccomma, "C,", 2, 0
 
 ; CR primitive - Output a carriage return/newline
 ; ( -- )
-dictEntry ccomma, cr, "CR", 2, 0
+dictEntry cr, "CR", 2, 0
     mov al, 10              ; Newline character
     call vga_ser_emit
     ret
 
 ; WORDS primitive - output the words in the dictionary
 ; ( -- )
-dictEntry cr, words, "WORDS", 5, 0
+dictEntry words, "WORDS", 5, 0
     mov eax, [LAST]         ; Start at most recently defined word
 .words_loop:
     cmp eax, 0              ; End of dictionary?
@@ -286,7 +285,7 @@ dictEntry cr, words, "WORDS", 5, 0
 
 ; Dictionary lookup - find a word by name
 ; (str -- addr | 0)
-dictEntry words, find, "FIND", 4, 0
+dictEntry find, "FIND", 4, 0
     call XT_dup             ; Get length of search string in ECX
     call XT_strlen
     dPop ecx                ; ECX = length of search string
@@ -328,7 +327,7 @@ dictEntry words, find, "FIND", 4, 0
 init_forth:
     ; Set LAST to the last defined word
     mov ebp, DATA_STK_BASE   ; Data stack pointer (EBP)
-    mov dword [LAST], dict_find
+    mov dword [LAST], last_de
     mov dword [BASE], 10
     mov dword [STATE], 0
     ret
@@ -489,7 +488,7 @@ section '.data'
 
 ; FORTH variables
 HERE: dd DICT_START             ; Next free address (grows UP)
-LAST: dd 0                      ; Most recent word (0 initially, will point to last defined)
+LAST: dd last_de                ; Most recent word (0 initially, will point to last defined)
 BASE: dd 10                     ; Number base (default 10)
 STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
 TO_IN: dd 0                     ; >IN - address of current input stream

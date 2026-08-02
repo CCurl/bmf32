@@ -27,6 +27,7 @@ streq:
     ret
 
 
+; ============================================================================
 ; hex_to_string - convert a number to a hex string
 ; Entry: EAX = number to convert, ESI = buffer (11+ bytes), ECX, width
 ; Exit: ESI points to hex string "0xXXXXXXXX\0"
@@ -68,3 +69,151 @@ hex_to_string:
     pop ebx
     pop eax
     ret
+
+; ============================================================================
+; numq - Check if string is a number and convert to integer
+; Entry: ESI = pointer to string
+; Exit: EAX = 1 if valid number, 0 if not
+;       ECX = accumulated number (if valid)
+numq:
+    push ebx
+    push edx
+    push edi
+    
+    ; Check for char literal: 'c' format
+    mov ax, [esi]
+    mov bx, [esi+2]
+
+    test al, al             ; Empty string? fail
+    jz .numq_fail
+
+    cmp al, 39              ; 39 = ' (single quote)
+    jne .numq_check_prefix
+    
+    cmp bl, 39              ; Check closing quote
+    jne .numq_fail          ; Not a valid char literal if not closed
+
+    test bh, bh             ; Check null terminator
+    jnz .numq_fail          ; Not a valid char literal if not null-terminated
+    
+    ; Valid char literal: push the character value
+    movzx ecx, ah           ; Zero-extend AH to ECX
+    jmp .numq_push_result
+    
+.numq_check_prefix:
+    ; Load base (default from BASE variable)
+    mov ebx, [BASE]         ; EBX = base
+    xor edx, edx            ; EDX = 0 (1 => isNeg)
+    
+    ; Check for % prefix (binary)
+    cmp al, '%'
+    jne .numq_check_hash
+    mov ebx, 2
+    inc esi
+    jmp .numq_parse_start   ; No negative sign for binary
+    
+.numq_check_hash:
+    ; Check for # prefix (decimal)
+    cmp al, '#'
+    jne .numq_check_dollar
+    mov ebx, 10
+    inc esi
+    jmp .numq_check_minus   ; Decimal allows negative sign
+    
+.numq_check_dollar:
+    ; Check for $ prefix (hex)
+    cmp al, '$'
+    jne .numq_check_minus
+    mov ebx, 16
+    inc esi
+    jmp .numq_parse_start   ; No negative sign check for hex
+    
+.numq_check_minus:
+    ; Check for minus sign (only if base == 10)
+    cmp ebx, 10
+    jne .numq_parse_start
+    
+    mov al, [esi]
+    cmp al, '-'
+    jne .numq_parse_start
+    mov edx, 1              ; Set negative flag
+    inc esi
+    
+.numq_parse_start:
+    ; Check if string is empty after prefix/minus
+    mov al, [esi]
+    test al, al
+    jz .numq_fail
+    
+    ; Initialize accumulator
+    xor ecx, ecx            ; ECX = accumulated number
+    
+.numq_loop:
+    mov al, [esi]
+    test al, al
+    jz .numq_done
+    
+    ; Convert uppercase to lowercase
+    cmp al, 'A'
+    jl .numq_char_ok
+    cmp al, 'Z'
+    jg .numq_char_ok
+    add al, 32              ; Convert to lowercase
+    
+.numq_char_ok:
+    ; Convert char to digit value (0-9 or 10-15 for a-f)
+    xor edi, edi            ; EDI = digit value
+    
+    ; Try 0-9
+    cmp al, '0'
+    jl .numq_fail
+    cmp al, '9'
+    jg .numq_try_letters
+    
+    sub al, '0'
+    movzx edi, al
+    jmp .numq_check_range
+    
+.numq_try_letters:
+    ; Try a-f
+    cmp al, 'a'
+    jl .numq_fail
+    cmp al, 'f'
+    jg .numq_fail
+    
+    sub al, 'a'
+    add al, 10
+    movzx edi, al
+    
+.numq_check_range:
+    ; Check if digit < base
+    cmp edi, ebx
+    jge .numq_fail
+    
+    ; Accumulate: n = n*base + digit
+    imul ecx, ebx           ; ECX = ECX * base
+    add ecx, edi            ; ECX = ECX + digit
+    
+    inc esi
+    jmp .numq_loop
+    
+.numq_done:
+    ; Apply sign if needed
+    test edx, edx
+    jz .numq_push_result
+    neg ecx
+    
+.numq_push_result:
+    mov eax, 1
+    jmp .numq_return
+    
+.numq_fail:
+    xor ecx, ecx
+    xor eax, eax
+    
+.numq_return:
+    pop edi
+    pop edx
+    pop ebx
+    ret
+

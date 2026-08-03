@@ -217,3 +217,34 @@ numq:
     pop ebx
     ret
 
+; ******************************************************************************
+; iToA: input:  ; EAX: the number to print - destroyed
+;       output: ; ECX: the start of the string
+;               ; EBX: the length of the string
+i2aBuf: db 64 dup(0)
+iToA:   mov     ecx, i2aBuf+63  ; output string start
+        mov     ebx, 0          ; output length
+        mov     BYTE [ecx], 0
+        push    0               ; isNegative flag
+        bt      eax, 31
+        jnc     .L
+        inc     BYTE [esp]
+        neg     eax
+.L:     push    ebx
+        mov     ebx, 10
+        mov     edx, 0
+        div     ebx
+        add     dl, '0'
+        dec     ecx 
+        mov     BYTE [ecx], dl
+        pop     ebx
+        inc     ebx
+        test    eax, eax
+        jnz     .L
+        pop     eax             ; get the negative flag
+        test    eax, eax        ; 0 means not negative
+        jz      .X
+        dec     ecx
+        mov     BYTE [ecx], '-'
+        inc     ebx
+.X:     ret

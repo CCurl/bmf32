@@ -6,6 +6,8 @@
 ; Note: ESP = return stack pointer (grows downward)
 ; Note: ESI = instruction pointer (points to next instruction to execute)
 
+CELL_SZ equ 4
+
 ; ============================================================================
 ; SECTION: MACROS
 ; ============================================================================
@@ -25,14 +27,14 @@ macro setTOS reg {
 ; Push a value onto the data stack (grows downward, EBP = data stack pointer)
 ; Usage: dPush eax    (or any 32-bit value)
 macro dPush reg {
-    sub ebp, 4
+    sub ebp, CELL_SZ
     setTOS reg
 }
 
 ; Drop the value from the data stack
 ; Usage: dDrop (no operands)
 macro dDrop {
-    add ebp, 4
+    add ebp, CELL_SZ
 }
 
 ; Pop a value from the data stack into a register
@@ -45,13 +47,13 @@ macro dPop reg {
 ; Read next on stack (2nd element) into a register (non-destructive)
 ; Usage: getNOS eax     (or any 32-bit register)
 macro getNOS reg {
-    mov reg, [ebp+4]
+    mov reg, [ebp+CELL_SZ]
 }
 
 ; Write to next on stack (2nd element, non-destructive to SP)
 ; Usage: setNOS eax     (or any 32-bit register)
 macro setNOS reg {
-    mov DWORD [ebp+4], reg
+    mov DWORD [ebp+CELL_SZ], reg
 }
 
 macro doNEXT {
@@ -161,6 +163,16 @@ dictEntry jmp, "(jmp)", 5, 0
 dictEntry dup, "DUP", 3, 0
     getTOS eax
     dPush eax
+    doNEXT
+
+; ?DUP primitive - Duplicate top of stack if not ZERO
+; ( a -- a | (a a) )
+dictEntry qDup, "?DUP", 4, 0
+    getTOS eax
+    test eax, eax
+    jz .noDup
+    dPush eax
+.noDup:
     doNEXT
 
 ; DROP primitive - Remove top of stack
@@ -460,9 +472,9 @@ dictEntry oneMinus, "1-", 2, 0
 ; FETCH primitive - Fetch a cell from memory
 ; ( addr -- value )
 dictEntry fetch, "@", 1, 0
-    dPop eax
-    mov eax, [eax]
-    dPush eax
+    getTOS eax
+    mov ebx, [eax]
+    setTOS ebx
     doNEXT
 
 ; STORE primitive - Store a cell into memory
@@ -475,10 +487,10 @@ dictEntry store, "!", 1, 0
 
 ; CFETCH primitive - Fetch a cell from memory
 ; ( addr -- value )
-dictEntry cfetch, "C@", 2, 0
-    dPop eax
-    movzx eax, byte [eax]
-    dPush eax
+dictEntry cFetch, "C@", 2, 0
+    getTOS eax
+    movzx ebx, byte [eax]
+    setTOS ebx
     doNEXT
 
 ; CSTORE primitive - Store a cell into memory
@@ -491,7 +503,6 @@ dictEntry cStore, "C!", 2, 0
 
 ; X@ primitive - Fetch X
 ; ( -- value )
-xVal: dd 0
 dictEntry xFetch, "X@", 2, 0
     mov eax, [xVal]
     setTOS eax
@@ -506,7 +517,6 @@ dictEntry xStore, "X!", 2, 0
 
 ; Y@ primitive - Fetch Y
 ; ( -- value )
-yVal: dd 0
 dictEntry yFetch, "Y@", 2, 0        
     mov eax, [yVal]
     setTOS eax
@@ -521,7 +531,6 @@ dictEntry yStore, "Y!", 2, 0
 
 ; Z@ primitive - Fetch Z
 ; ( -- value )
-zVal: dd 0
 dictEntry zFetch, "Z@", 2, 0
     mov eax, [zVal]
     setTOS eax
@@ -532,6 +541,60 @@ dictEntry zFetch, "Z@", 2, 0
 dictEntry zStore, "Z!", 2, 0
     dPop eax
     mov [zVal], eax
+    doNEXT
+
+; >L primitive - Move to local stack
+; ( value -- )
+dictEntry toLStk, ">L", 2, 0
+    dPop eax
+    add DWORD [lsp], CELL_SZ
+    mov ebx, [lsp]
+    mov [ebx], eax
+    setTOS eax
+    doNEXT
+
+; L@ primitive - Fetch from local stack
+; ( -- value )
+dictEntry atLStk, "L@", 2, 0
+    mov ebx, [lsp]
+    mov eax, [ebx]
+    dPush eax
+    doNEXT
+
+; L> primitive - Move from local stack
+; ( -- value )
+dictEntry fromLStk, "L>", 2, 0
+    mov ebx, [lsp]
+    cmp ebx, lStk
+    jle .under
+    mov eax, [ebx]
+    dPush eax
+    sub DWORD [lsp], CELL_SZ
+    doNEXT
+.under:
+    mov DWORD [lsp], lStk
+    dPush 0
+    doNEXT
+
+dictEntry lspAddr, "(LSP)", 5, 0
+    mov eax, lsp
+    dPush eax
+    doNEXT
+
+dictEntry zType, "ZTYPE", 5, 0
+    push esi
+    dPop esi
+    call vga_ser_write
+    pop esi
+    doNEXT
+
+; I>A primitive - Convert integer to ASCII string
+; ( n -- addr len )
+dictEntry iToA, "I>A", 3, 0
+    dPop eax
+    call iToA
+    dPush ecx
+    dPush ebx
     doNEXT
 
 prims_end:
@@ -551,10 +614,25 @@ dictEntry space, "SPACE", 6, 0
 dictEntry cells, "CELLS", 5, 0
     dd $80000004, XT_mult, XT_exit
 
-;   : x@+ ( -- value )  X@ DUP 1+ X! ;
-dictEntry xFetchP, "X@+", 3, 0
+;   : X@+ ( -- value )  X@ DUP 1+ X! ;
+dictEntry xAtPlus, "X@+", 3, 0
     dd XT_xFetch, XT_dup, XT_onePlus, XT_xStore, XT_exit
 
+;   : C@X+ ( -- value )  X@+ C@ ;
+dictEntry cAtXPlus, "C@X+", 4, 0
+    dd XT_xAtPlus, XT_cFetch, XT_exit
+
+;  : X>L ( -- )  X@ >L ;
+dictEntry xToL, "X>L", 3, 0
+    dd XT_xFetch, XT_toLStk, XT_exit
+
+;  : L>X ( -- )  L> X! ;
+dictEntry lToX, "L>X", 3, 0
+    dd XT_fromLStk, XT_xStore, XT_exit
+
+; ============================================================================
+; TESTS
+; ============================================================================
 ;    : test1 1 LIT 16 CELLS + EMIT ;
 dictEntry test1, "TEST1", 5, 0
     dd 0x80000001, XT_lit, 16, XT_cells, XT_add, XT_emit, XT_exit
@@ -582,14 +660,35 @@ dictEntry test5, "TEST5", 5, 0
         dd XT_drop, $80000059
 t5_no:
     dd XT_emit, $80000041, XT_xStore
-    dd XT_xFetchP, XT_emit, XT_xFetchP, XT_emit, XT_xFetchP, XT_emit
+    dd XT_xAtPlus, XT_emit, XT_xAtPlus, XT_emit, XT_xAtPlus, XT_emit
     dd XT_exit
 
+dictEntry testHW, "TEST-HW", 7, 0
+    dd XT_lit, str1, XT_zType
+    dd XT_lit, 12345, XT_iToA, XT_drop, XT_zType
+    dd XT_cr, XT_exit
+
+; TEST-NUMQ - Test NUMBER? primitive
+; Tests parsing various number formats: decimal, hex, binary, char literals
+dictEntry testNumq, "TEST-NUMQ", 9, 0
+    dd XT_exit                ; TODO: implement number parsing tests
+
+; TEST-DICT - Test FIND primitive
+; Tests dictionary lookup with various word names
+dictEntry testDict, "TEST-DICT", 9, 0
+    dd XT_exit                ; TODO: implement dictionary lookup tests
+
+; TEST-WORD - Test WORD primitive
+; Tests word parsing from input stream
+dictEntry testWord, "TEST-WORD", 9, 0
+    dd XT_exit                ; TODO: implement word parsing tests
+
 dictEntry tests, "TESTS", 5, 0
-    dd XT_test1, XT_test2
+    dd XT_testHW, XT_test1, XT_test2
     dd XT_lit, 1, XT_test3, XT_lit, 0, XT_test3, XT_space
     dd XT_lit, 1, XT_test4, XT_lit, 0, XT_test4, XT_space
     dd XT_lit, 1, XT_test5, XT_lit, 0, XT_test5, XT_space
+    dd XT_testNumq, XT_testDict, XT_testWord
     dd XT_cr, XT_exit
 
 ;   : COLD TESTS ;
@@ -610,6 +709,9 @@ init_forth:
 run_forth:
     ; call run_tests            ; Run tests - replace with actual FORTH interpreter loop
     mov [Start_ESP], esp        ; Save the start of the return stack for bounds checking
+    mov ebp, DATA_STK_BASE      ; Initialize data stack pointer (EBP)
+    mov eax, lStk               ; Initialize local stack pointer (LSP)
+    mov [lsp], eax
     mov esi, XT_cold            ; FORTH COLD startup word
     cld
     jmp inner
@@ -620,9 +722,16 @@ run_forth:
 ; ============================================================================
 section '.data'
 
-HERE: dd DICT_START             ; Next free address (grows UP)
-LAST: dd last_de                ; Most recent word (0 initially, will point to last defined)
-BASE: dd 10                     ; Number base (default 10)
+Start_ESP: dd 0                 ; Start of return stack (for bounds checking)
+HERE:  dd DICT_START            ; Next free address (grows UP)
+LAST:  dd last_de               ; Most recent word (0 initially, will point to last defined)
+BASE:  dd 10                    ; Number base (default 10)
 STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
 TO_IN: dd 0                     ; >IN - address of current input stream
-Start_ESP: dd 0                 ; Start of return stack (for bounds checking)
+lStk: dd 32 dup(0)
+lsp:  dd lStk
+xVal: dd 0
+yVal: dd 0
+zVal: dd 0
+
+str1: db "Hello, World! ", 0

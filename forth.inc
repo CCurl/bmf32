@@ -20,15 +20,15 @@ macro getTOS reg {
 
 ; Write to top of stack (non-destructive to SP)
 ; Usage: setTOS eax     (or any 32-bit value)
-macro setTOS reg {
-    mov DWORD [ebp], reg
+macro setTOS regVal {
+    mov DWORD [ebp], regVal
 }
 
 ; Push a value onto the data stack (grows downward, EBP = data stack pointer)
 ; Usage: dPush eax    (or any 32-bit value)
-macro dPush reg {
+macro dPush regVal {
     sub ebp, CELL_SZ
-    setTOS reg
+    setTOS regVal
 }
 
 ; Drop the value from the data stack
@@ -52,8 +52,8 @@ macro getNOS reg {
 
 ; Write to next on stack (2nd element, non-destructive to SP)
 ; Usage: setNOS eax     (or any 32-bit register)
-macro setNOS reg {
-    mov DWORD [ebp+CELL_SZ], reg
+macro setNOS regVal {
+    mov DWORD [ebp+CELL_SZ], regVal
 }
 
 macro doNEXT {
@@ -480,8 +480,8 @@ dictEntry fetch, "@", 1, 0
 ; STORE primitive - Store a cell into memory
 ; ( value addr -- )
 dictEntry store, "!", 1, 0
-    dPop eax                ; Value to store
     dPop ebx                ; Address to store into
+    dPop eax                ; Value to store
     mov [ebx], eax
     doNEXT
 
@@ -496,8 +496,8 @@ dictEntry cFetch, "C@", 2, 0
 ; CSTORE primitive - Store a cell into memory
 ; ( value addr -- )
 dictEntry cStore, "C!", 2, 0
-    dPop eax                ; Value to store
     dPop ebx                ; Address to store into
+    dPop eax                ; Value to store
     mov [ebx], al
     doNEXT
 
@@ -592,9 +592,10 @@ dictEntry zType, "ZTYPE", 5, 0
 ; ( n -- addr len )
 dictEntry iToA, "I>A", 3, 0
     dPop eax
+    mov ebx, [BASE]
     call iToA
     dPush ecx
-    dPush ebx
+    dPush edx
     doNEXT
 
 prims_end:
@@ -605,10 +606,16 @@ prims_end:
 ; ============================================================================
 ; FORTH words
 ; ============================================================================
-dictEntry cr, "CR", 6, 0
+dictEntry dec, "DECIMAL", 7, 0
+    dd $8000000A, XT_lit, BASE, XT_store, XT_exit
+
+dictEntry hex, "HEX", 3, 0
+    dd $80000010, XT_lit, BASE, XT_store, XT_exit
+
+dictEntry cr, "CR", 2, 0
     dd $8000000A, XT_emit, XT_exit
 
-dictEntry space, "SPACE", 6, 0
+dictEntry space, "SPACE", 5, 0
     dd $80000020, XT_emit, XT_exit
 
 dictEntry cells, "CELLS", 5, 0
@@ -630,88 +637,31 @@ dictEntry xToL, "X>L", 3, 0
 dictEntry lToX, "L>X", 3, 0
     dd XT_fromLStk, XT_xStore, XT_exit
 
-; ============================================================================
-; TESTS
-; ============================================================================
-;    : test1 1 LIT 16 CELLS + EMIT ;
-dictEntry test1, "TEST1", 5, 0
-    dd 0x80000001, XT_lit, 16, XT_cells, XT_add, XT_emit, XT_exit
-
-dictEntry test2, "TEST2", 5, 0
-    dd XT_test1, XT_cr, XT_words, XT_cr, XT_exit
-
-;    : test3 IF 'Y' EMIT EXIT THEN 'N' EMIT ;
-dictEntry test3, "TEST3", 5, 0
-    dd XT_jmpz, t3_no
-       dd $80000059, XT_emit, XT_exit
-t3_no:
-    dd $8000004E, XT_emit, XT_exit
-
-;    : test4 'N' X! IF 'Y' X! THEN X@ EMIT ;
-dictEntry test4, "TEST4", 5, 0
-    dd $8000004E, XT_xStore, XT_jmpz, t4_no
-        dd $80000059, XT_xStore
-t4_no:
-    dd XT_xFetch, XT_emit, XT_exit
-
-;    : test5 'N' SWAP IF DROP 'Y' THEN EMIT ;
-dictEntry test5, "TEST5", 5, 0
-    dd $8000004E, XT_swap, XT_jmpz, t5_no
-        dd XT_drop, $80000059
-t5_no:
-    dd XT_emit, $80000041, XT_xStore
-    dd XT_xAtPlus, XT_emit, XT_xAtPlus, XT_emit, XT_xAtPlus, XT_emit
-    dd XT_exit
-
-dictEntry testHW, "TEST-HW", 7, 0
-    dd XT_lit, str1, XT_zType
-    dd XT_lit, 12345, XT_iToA, XT_drop, XT_zType
-    dd XT_cr, XT_exit
-
-; TEST-NUMQ - Test NUMBER? primitive
-; Tests parsing various number formats: decimal, hex, binary, char literals
-dictEntry testNumq, "TEST-NUMQ", 9, 0
-    dd XT_exit                ; TODO: implement number parsing tests
-
-; TEST-DICT - Test FIND primitive
-; Tests dictionary lookup with various word names
-dictEntry testDict, "TEST-DICT", 9, 0
-    dd XT_exit                ; TODO: implement dictionary lookup tests
-
-; TEST-WORD - Test WORD primitive
-; Tests word parsing from input stream
-dictEntry testWord, "TEST-WORD", 9, 0
-    dd XT_exit                ; TODO: implement word parsing tests
-
-dictEntry tests, "TESTS", 5, 0
-    dd XT_testHW, XT_test1, XT_test2
-    dd XT_lit, 1, XT_test3, XT_lit, 0, XT_test3, XT_space
-    dd XT_lit, 1, XT_test4, XT_lit, 0, XT_test4, XT_space
-    dd XT_lit, 1, XT_test5, XT_lit, 0, XT_test5, XT_space
-    dd XT_testNumq, XT_testDict, XT_testWord
-    dd XT_cr, XT_exit
+dictEntry pDot, "(.)", 3, 0
+    dd XT_iToA, XT_drop, XT_zType, XT_exit
 
 ;   : COLD TESTS ;
 dictEntry cold, "COLD", 4, 0
+    ; just run the test suite for now
     dd XT_tests, XT_exit
 
+include 'tests.inc'
 ; ============================================================================
 ; Init/ Run
 ; ============================================================================
 init_forth:
     ; Set LAST to the last defined word
-    mov ebp, DATA_STK_BASE   ; Data stack pointer (EBP)
+    mov [Start_ESP], esp        ; Save the start of the return stack for bounds checking
     mov dword [LAST], last_de
-    mov dword [BASE], 10
-    mov dword [STATE], 0
+    mov dword [HERE], DICT_START
     ret
 
 run_forth:
-    ; call run_tests            ; Run tests - replace with actual FORTH interpreter loop
-    mov [Start_ESP], esp        ; Save the start of the return stack for bounds checking
     mov ebp, DATA_STK_BASE      ; Initialize data stack pointer (EBP)
     mov eax, lStk               ; Initialize local stack pointer (LSP)
     mov [lsp], eax
+    mov dword [BASE], 10
+    mov dword [STATE], 0
     mov esi, XT_cold            ; FORTH COLD startup word
     cld
     jmp inner
@@ -720,7 +670,7 @@ run_forth:
 ; ============================================================================
 ; FORTH variables
 ; ============================================================================
-section '.data'
+; section '.data'
 
 Start_ESP: dd 0                 ; Start of return stack (for bounds checking)
 HERE:  dd DICT_START            ; Next free address (grows UP)
@@ -728,10 +678,8 @@ LAST:  dd last_de               ; Most recent word (0 initially, will point to l
 BASE:  dd 10                    ; Number base (default 10)
 STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
 TO_IN: dd 0                     ; >IN - address of current input stream
-lStk: dd 32 dup(0)
-lsp:  dd lStk
-xVal: dd 0
-yVal: dd 0
-zVal: dd 0
-
-str1: db "Hello, World! ", 0
+lStk:  dd 32 dup(0)
+lsp:   dd lStk
+xVal:  dd 0
+yVal:  dd 0
+zVal:  dd 0

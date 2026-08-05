@@ -1,263 +1,64 @@
 ; ============================================================================
 ; Tests
 ; ============================================================================
+;    : test1 1 LIT 16 CELLS + EMIT ;
+dictEntry test1, "TEST1", 5, 0
+    dd 0x80000001, XT_lit, 16, XT_cells, XT_add, XT_emit, XT_exit
 
-run_tests:
-    call XT_cr
-    call XT_words            ; Print dictionary words
-    call XT_cr
+dictEntry test2, "TEST2", 5, 0
+    dd XT_test1, XT_cr, XT_words, XT_cr, XT_exit
 
-    ; Run individual test suites
-    call test_numq
-    call test_dict_lookup
-    call test_word
-    
-    ret
+;    : test3 IF 'Y' EMIT EXIT THEN 'N' EMIT ;
+dictEntry test3, "TEST3", 5, 0
+    dd XT_jmpz, t3_no
+       dd $80000059, XT_emit, XT_exit
+t3_no:
+    dd $8000004E, XT_emit, XT_exit
 
-; ============================================================================
-; TEST HELPER FUNCTIONS
-; ============================================================================
+;    : test4 'N' X! IF 'Y' X! THEN X@ EMIT ;
+dictEntry test4, "TEST4", 5, 0
+    dd $8000004E, XT_xStore, XT_jmpz, t4_no
+        dd $80000059, XT_xStore
+t4_no:
+    dd XT_xFetch, XT_emit, XT_exit
 
-; Helper: Print test result in hex (with " => 0x..." format)
-; Entry: EAX = value to print
-; Exit: Prints result and newline
-print_hex_result:
-    push ecx
-    push esi
-    
-    mov esi, msg_test_pass
-    call vga_ser_write
-    
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, hex_buffer
-    call vga_ser_write
-    
-    call XT_cr
-    
-    pop esi
-    pop ecx
-    ret
+;    : test5 'N' SWAP IF DROP 'Y' THEN EMIT ;
+dictEntry test5, "TEST5", 5, 0
+    dd $8000004E, XT_swap, XT_jmpz, t5_no
+        dd XT_drop, $80000059
+t5_no:
+    dd XT_emit, $80000041, XT_xStore
+    dd XT_xAtPlus, XT_emit, XT_xAtPlus, XT_emit, XT_xAtPlus, XT_emit
+    dd XT_exit
 
-; Helper: Print test failure message (" => FAIL")
-print_fail:
-    push esi
-    mov esi, msg_test_fail
-    call vga_ser_write
-    pop esi
-    ret
+dictEntry testHW, "TEST-HW", 7, 0
+    dd XT_lit, helloWorld, XT_zType
+    dd XT_hex, XT_lit, 12345, XT_iToA, XT_drop, XT_space, XT_zType
+    dd XT_dec, XT_lit, 12345, XT_iToA, XT_drop, XT_space, XT_zType
+    dd XT_cr, XT_exit
 
-; Helper: Run a numq test case (ESI = test string)
-; Prints string, calls numq, prints result or failure
-test_numq_case:
-    push eax
-    push esi
-    
-    call vga_ser_write          ; Print test string
-    dPush esi                   ; Push test string pointer onto stack for numq
-    call XT_numq                ; Parse string
-    dPop eax
-    test eax, eax
-    jz .numq_case_fail
-    
-    dPop eax                    ; Get parsed value
-    call print_hex_result
-    jmp .numq_case_done
-    
-.numq_case_fail:
-    call print_fail
-    
-.numq_case_done:
-    pop esi
-    pop eax
-    ret
+; TEST-NUMQ - Test NUMBER? primitive
+; Tests parsing various number formats: decimal, hex, binary, char literals
+dictEntry testNumq, "TEST-NUMQ", 9, 0
+    dd XT_exit                ; TODO: implement number parsing tests
 
-; Helper: Run a dict_lookup test case (ESI = search string)
-; Prints string, calls dict_lookup, prints result or failure
-test_dict_case:
-    push eax
-    push esi
-    
-    call vga_ser_write          ; Print test string
-    dPush esi                   ; Push string pointer for dict_lookup
-    call XT_find                ; Lookup word
-    dPop eax                    ; Get result
-    test eax, eax
-    jz .dict_case_not_found
-    
-    ; Found: print address
-    mov esi, msg_dict_found
-    call vga_ser_write
-    call print_hex_result
-    jmp .dict_case_done
-    
-.dict_case_not_found:
-    mov esi, msg_dict_notfound
-    call vga_ser_write
-    
-.dict_case_done:
-    pop esi
-    pop eax
-    ret
+; TEST-DICT - Test FIND primitive
+; Tests dictionary lookup with various word names
+dictEntry testDict, "TEST-DICT", 9, 0
+    dd XT_exit                ; TODO: implement dictionary lookup tests
 
-; ============================================================================
-; TEST SUITES
-; ============================================================================
+; TEST-WORD - Test WORD primitive
+; Tests word parsing from input stream
+dictEntry testWord, "TEST-WORD", 9, 0
+    dd XT_exit                ; TODO: implement word parsing tests
 
-; Test numq function with 7 test cases
-test_numq:
-    push eax
-    push ebx
-    push ecx
-    push edx
-    push esi
-    push edi
-    
-    mov esi, msg_test
-    call vga_ser_write
-    
-    ; Test cases 1-6: should succeed
-    mov esi, test_str_1
-    call test_numq_case
-    
-    mov esi, test_str_2
-    call test_numq_case
-    
-    mov esi, test_str_3
-    call test_numq_case
-    
-    mov esi, test_str_4
-    call test_numq_case
-    
-    mov esi, test_str_5
-    call test_numq_case
-    
-    mov esi, test_str_6
-    call test_numq_case
-    
-    ; Test 7: #XYZ (invalid - should fail)
-    mov esi, test_str_7
-    call test_numq_case
-    ; call vga_ser_write
-    ; dPush esi                    ; Push test string pointer
-    ; call XT_numq
-    ; dPop eax                     ; Get result from numq
-    ; test eax, eax
-    ; jz .test_numq_correctly_failed
-    ; call print_fail              ; Incorrectly succeeded
-    ; jmp .test_numq_done
-    
-;.test_numq_correctly_failed:
-;    call print_fail              ; Correctly failed
-    
-.test_numq_done:
-    pop edi
-    pop esi
-    pop edx
-    pop ecx
-    pop ebx
-    pop eax
-    ret
-
-; Test dict_lookup function with 4 test cases
-test_dict_lookup:
-    push eax
-    push ebx
-    push ecx
-    push edx
-    push esi
-    push edi
-    
-    mov esi, msg_dict_test
-    call vga_ser_write
-    
-    ; Tests 1-3: should find
-    mov esi, lookup_str_1
-    call test_dict_case
-    
-    mov esi, lookup_str_2
-    call test_dict_case
-    
-    mov esi, lookup_str_3
-    call test_dict_case
-    
-    mov esi, lookup_str_4
-    call test_dict_case
-    
-.test_dict_done:
-    pop edi
-    pop esi
-    pop edx
-    pop ecx
-    pop ebx
-    pop eax
-    ret
-
-; Test WORD primitive
-test_word:
-    push eax
-    push ebx
-    push ecx
-    push edx
-    push esi
-    push edi
-    
-    mov esi, msg_word_test
-    call vga_ser_write
-    
-    ; Test: Parse "hello" from "  hello  world" (skip leading spaces)
-    mov esi, word_test_input_1
-    call vga_ser_write
-    mov esi, word_test_input_1
-    mov [TO_IN], esi            ; Set input stream to test string
-    call XT_word                ; Parse the word
-    
-    ; Check length (should be 5 for "hello")
-    dPop ecx                    ; ECX = length
-    dPop esi                    ; ESI = address of parsed word
-    cmp ecx, 5
-    je .test_word_pass
-
-    call XT_word                ; Parse the word
-    ; Check length (should be 5 for "hello")
-    dPop ecx                    ; ECX = length
-    dPop esi                    ; ESI = address of parsed word
-    cmp ecx, 5
-    je .test_word_pass
-
-.test_word_fail:
-    call print_fail
-    jmp .test_word_done
-    
-.test_word_pass:
-    push esi
-    mov esi, msg_test_pass
-    call vga_ser_write
-    pop esi
-    call vga_ser_write
-    
-    mov al, ','
-    dPush eax
-    call XT_emit
-    call XT_word                ; Parse the word
-    ; Check length (should be 5 for "world!")
-    dPop ecx                    ; ECX = length
-    dPop esi                    ; ESI = address of parsed word
-    cmp ecx, 6
-    jne .test_word_fail
-    call vga_ser_write
-
-    call XT_cr
-    
-.test_word_done:
-    pop edi
-    pop esi
-    pop edx
-    pop ecx
-    pop ebx
-    pop eax
-    ret
+dictEntry tests, "TESTS", 5, 0
+    dd XT_testHW, XT_test1, XT_test2
+    dd XT_lit, 1, XT_test3, XT_lit, 0, XT_test3, XT_space
+    dd XT_lit, 1, XT_test4, XT_lit, 0, XT_test4, XT_space
+    dd XT_lit, 1, XT_test5, XT_lit, 0, XT_test5, XT_space
+    dd XT_testNumq, XT_testDict, XT_testWord
+    dd XT_cr, XT_exit
 
 ; ============================================================================
 ; Test data
@@ -291,3 +92,4 @@ lookup_str_4: db "NOTAWORD", 0    ; Should NOT find this
 ; Test strings for WORD primitive
 msg_word_test: db 10, "Testing WORD:", 10, 0
 word_test_input_1: db "  hello  world!", 0 ; Leading spaces, should parse "hello"
+helloWorld: db "Hello, World! ", 0

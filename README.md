@@ -159,6 +159,26 @@ qemu-system-i386 -kernel kernel.elf -m 32M -serial stdio
 qemu-system-i386 -kernel kernel.elf -m 32M
 ```
 
+## Next Steps (FORTH Implementation)
+
+**Progress:**
+- ✅ Stack macros: dPush, dPop, getTOS, getNOS, setTOS, setNOS (EBP-based)
+- ✅ Dictionary infrastructure (linked list, case-insensitive lookup)
+- ⏳ Primitives (in progress)
+
+**Roadmap for remaining FORTH:**
+
+1. **More stack primitives** - OVER, ROT, -ROT, DEPTH, PICK, ROLL
+2. **Arithmetic** - +, -, *, /, MOD, /MOD, ABS, MIN, MAX, NEGATE
+3. **Comparison** - <, >, =, <>, <=, >=, 0<, 0>, 0=
+4. **Memory access** - @, !, C@, C!, +!
+5. **Control flow** - IF, THEN, ELSE, BEGIN, UNTIL, LOOP, DO
+6. **FORTH I/O** - EMIT, KEY, CR, SPACES
+7. **Interpreter loop** - Token parsing, execute from dictionary
+8. **Word definition** - Colon definitions (: name ... ;)
+9. **Graphics** - PIXEL drawing using 4MB buffer
+10. **Optimizations** - JIT compilation, tail call optimization
+
 ## Debug Commands
 
 ```bash

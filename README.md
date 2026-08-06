@@ -7,12 +7,11 @@ Currently runs under QEMU (the 32-bit x86 emulator) using the `-kernel` option.
 ## Features
 
 - **32-bit x86 protected mode**: Full x86-32 architecture support
-- **Pure Assembly (FASM)**: Entire kernel in single `.asm` file (~2.5 KB object)
+- **Pure Assembly (FASM)**: Only dependency is on an assembler
 - **VGA text console**: 80×25 text mode output (0xB8000)
 - **Serial output**: COM1 (0x3F8) for debugging/secondary output
 - **Interrupt system**: IDT + 8259 PIC with PS/2 keyboard handler
 - **PS/2 keyboard**: Ring buffer for scancode capture (IRQ1/INT 0x21)
-- **Memory layout**: 32 MB for FORTH (stacks, dictionary, graphics buffer)
 - **Direct kernel loading**: Boots with QEMU `-kernel` flag
 
 ## Quick Start
@@ -35,6 +34,9 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 ```
 .
 ├── kernel.asm       # Bootloader + kernel + drivers
+├── util.inc         # Utility functions
+├── forth.inc        # The Forth system
+├── tests.inc        # Tests
 ├── linker.ld        # Memory layout script
 ├── Makefile         # Build automation
 ├── LICENSE          # License (MIT)
@@ -56,32 +58,21 @@ make run      # Build and run in QEMU window
 ## Memory Layout (32 MB)
 
 ```
-0x01FFFFFF  ┌─────────────────────┐
-            │  Free space         │
-0x00700800  │ Dictionary + Code   │ (grows UP, ~15 MB)
-            │ (mixed entries)     │
-            ├─────────────────────┤
-0x007FFC00  │ Data stack          │ (1 KB, grows down)
-            ├─────────────────────┤
-0x00600000  │ Graphics buffer     │ (4 MB, VESA 1280×1024@32-bit)
-            ├─────────────────────┤
-0x00200000  │ Kernel + data       │ (1 MB)
-            │ + ESP stack (16 KB) │
-            ├─────────────────────┤
-0x00100000  │ VGA text (4 KB, HW) │
-0x000B8000  ├─────────────────────┤
-            │ Reserved / BIOS     │
-0x00000000  └─────────────────────┘
-```
-
-**Dictionary Entry Format:**
-```
-[Offset 0:3]   Link pointer to previous entry (4 bytes)
-[Offset 4:7]   Execution Token (XT) (4 bytes)
-[Offset 8:8]   Flags (1 byte)  
-[Offset 9:9]   Length (1 byte)  
-[Offset 10:n]  Name, NULL-terminated (variable length)
-[Offset n+1:m] Inline code (XT, variable size)
+0x01FFFFFF  ┌─────────────────────────────┐
+            │ User Dictionary (grows UP)  │ ~15 MB free
+0x00600500  ├─────────────────────────────┤
+            │ Buffer                      │ 256 bytes
+0x00600400  ├─────────────────────────────┤
+            │ Data stack (grows DOWN)     │ 1 KB, 256 entries
+0x00600000  ├─────────────────────────────┤
+            │ Graphics buffer             │ 4 MB
+0x00200000  ├─────────────────────────────┤
+            │ Kernel + ESP stack          │ 1 MB (16 KB stack)
+0x00100000  ├─────────────────────────────┤
+            │ VGA text (HW)               │ 4 KB
+0x000B8000  ├─────────────────────────────┤
+            │ BIOS / System               │
+0x00000000  └─────────────────────────────┘
 ```
 
 ## Kernel Components
@@ -122,7 +113,7 @@ make run      # Build and run in QEMU window
 - **Status check**: Port 0x64 bit 0 before reading 0x60
 - **Init**: Disables/re-enables controller, enables IRQ1
 
-### Utility Functions
+## Utility Functions
 - `hex_to_string(EAX, ESI)` - Convert 32-bit to "0xXXXXXXXX"
 - `idt_set_entry(EAX, BL, CL)` - Configure IDT entry
 - `init_idt()` - Initialize IDT, load with LIDT
@@ -133,16 +124,27 @@ make run      # Build and run in QEMU window
 - `keyboard_read()` - Non-blocking read from keyboard buffer
 - `keyboard_has_data()` - Check if keyboard buffer has pending scancodes
 
-### FORTH Dictionary & Primitives
-- **Dict pointer**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
-- **Entry format**: [Link(4)] [XT(4)] [Flags/Len(1)] [Name(variable)] [NULL] [Code]
+## FORTH System
+**Dictionary Entry Format:**
+```
+[Offset 0:3]   Link pointer to previous entry (4 bytes)
+[Offset 4:7]   Execution Token (XT) (4 bytes)
+[Offset 8]     Flags (1 byte)  
+[Offset 9]     Length (1 byte)  
+[Offset 10:n]  Name (variable length)
+[Offset n+1]   NULL (1 byte)
+[Offset n+2:m] Inline code (XT, variable size)
+```
+
+- **Data stack**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
 - **Stack macros**:
-  - `dPush reg` - Push register onto data stack
-  - `dPop reg` - Pop from data stack into register
+  - `dPush val` - Push a value onto the data stack
+  - `dPop reg` - Pop from data stack into a register
+  - `dDrop` - Drop the top of stack
   - `getTOS reg` - Read top of stack (non-destructive)
   - `getNOS reg` - Read 2nd element (non-destructive)
-  - `setTOS reg` - Write top of stack
-  - `setNOS reg` - Write 2nd element
+  - `setTOS val` - Set top of stack
+  - `setNOS val` - Set 2nd element
 
 ## Running
 
@@ -157,26 +159,6 @@ qemu-system-i386 -kernel kernel.elf -m 32M -serial stdio
 qemu-system-i386 -kernel kernel.elf -m 32M
 ```
 
-## Next Steps (FORTH Implementation)
-
-**Progress:**
-- ✅ Stack macros: dPush, dPop, getTOS, getNOS, setTOS, setNOS (EBP-based)
-- ✅ Dictionary infrastructure (linked list, case-insensitive lookup)
-- ⏳ Primitives (in progress)
-
-**Roadmap for remaining FORTH:**
-
-1. **More stack primitives** - OVER, ROT, -ROT, DEPTH, PICK, ROLL
-2. **Arithmetic** - +, -, *, /, MOD, /MOD, ABS, MIN, MAX, NEGATE
-3. **Comparison** - <, >, =, <>, <=, >=, 0<, 0>, 0=
-4. **Memory access** - @, !, C@, C!, +!
-5. **Control flow** - IF, THEN, ELSE, BEGIN, UNTIL, LOOP, DO
-6. **FORTH I/O** - EMIT, KEY, CR, SPACES
-7. **Interpreter loop** - Token parsing, execute from dictionary
-8. **Word definition** - Colon definitions (: name ... ;)
-9. **Graphics** - PIXEL drawing using 4MB buffer
-10. **Optimizations** - JIT compilation, tail call optimization
-
 ## Debug Commands
 
 ```bash
@@ -184,7 +166,7 @@ qemu-system-i386 -kernel kernel.elf -m 32M
 file kernel.elf
 readelf -l kernel.elf        # Program headers
 readelf -S kernel.elf        # Section headers
-nm kernel.elf                 # Symbols
+nm kernel.elf                # Symbols
 
 # Disassemble
 objdump -d kernel.elf | less
@@ -196,33 +178,34 @@ objdump -s -j .multiboot kernel.elf | head -5
 
 ## Known Limitations / TODOs
 
-- [ ] FORTH interpreter loop not yet implemented
-- [ ] No scancode--ASCII conversion (raw scancodes in buffer)
-- [ ] Graphics buffer allocated but unused
-- [ ] No disk support
 - [x] Stack abstraction (EBP-based data stack)
 - [x] Dictionary infrastructure
 - [ ] Core primitives (in progress)
+- [x] Number parsing (numq with multiple bases)
+- [x] Dictionary lookup (case-insensitive)
+- [ ] FORTH interpreter loop
+- [ ] Scancode -> ASCII conversion (raw scancodes in buffer)
+- [ ] Graphics buffer allocated but unused
+- [ ] Disk support
 
 ## Architecture Notes
 
 **Why pure assembly?**
 - No dependency on a 3rd party compiler
 - Total control over memory layout and execution
-- Minimal overhead (~2.5 KB object code!)
+- Minimal overhead (very small kernel!)
 - Single executable file, no dependencies
 - Perfect for bare metal + FORTH experimentation
 
 **Register conventions:**
-- EAX, EDX: Return values / scratch
-- ESI: String pointer (calls)
-- EBX, ECX: General purpose
+- EAX, EBX, ECX, EDX: scratch
+- ESI, EDI: String pointers / scratch
 - ESP: Return stack (Forth and x86 stack calls/returns)
 - EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_BASE`)
 
 **Calling convention:**
-- Return via RET (pops EIP)
 - No STDCALL (manual stack management)
+- Return/Exit via RET (Subroutine threading)
 
 ## Tools Used
 
@@ -235,7 +218,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 
 - [OSDev.org Wiki](https://wiki.osdev.org/)
 - [Multiboot Specification](https://www.gnu.org/software/grub/manual/multiboot/)
-- [x86 Instruction Set](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-manual-combined-volumes-1-2a-2b-2c-2d.pdf)
+- [x86 Instruction Set Reference](https://www.felixcloutier.com/x86/)
 - [FASM Documentation](https://flatassembler.net/)
 - [FORTH Standards](https://forth-standard.org/)
 

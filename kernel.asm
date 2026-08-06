@@ -26,80 +26,16 @@ SERIAL_PORT = 0x3F8
 ; ============================================================================
 ; MEMORY LAYOUT (32 MB total)
 ; ============================================================================
-; 0x01FFFFFF  Free space
-;
-;   Dictionary + Code (grow UP from DICT_START, mixed entries)
-;   Each entry: [Link(4)] [XT(4)] [Flags|Len(1)] [Name(variable)] [NULL(1)] [Code]
-; 0x00700800
-;
-;   Data stack (1 KB, grows DOWN) 
-; 0x007FFC00
-;
-;   Graphics buffer (4 MB, 1280×1024@32-bit)
-; 0x00200000
-;
-;   Kernel code + data + kernel stack (16 KB, ESP points here)
-; 0x00100000
-; 0x00000000
 
-; Kernel entry point (GRUB multiboot)
-KERNEL_START  = 0x00100000
-
-; Graphics buffer (4 MB for VESA 1280×1024@32-bit)
-GRAPHICS_START = 0x00200000
-GRAPHICS_SIZE  = 0x00400000  ; 4 MB
-
-; Data stack (1 KB, grows downward, will use memory)
-DATA_STK_BASE = 0x007FFC00
-DATA_STK_SIZE = 0x00000400  ; 1 KB (256 entries × 4 bytes)
-
-; Dictionary + Code (grows upward from here, mixed entries)
-DICT_START    = 0x00700800
-DICT_SIZE     = 0x00F00000  ; ~15 MB available for dictionary+code
+DICT_START     = 0x00600500  ; Dictionary (grows UP)
+DATA_STK_BASE  = 0x00600400  ; Data stack (grows DOWN)
+GRAPHICS_END   = 0x005FFFFF  ; Graphics buffer end
+GRAPHICS_START = 0x00200000  ; Graphics buffer start (4 MB)
+WORD_START     = 0x00180200  ; Word buffer (256 bytes)
+TIB_START      = 0x00180000  ; Text Input Buffer (512 bytes)
+KERNEL_START   = 0x00100000  ; Kernel entry point (GRUB multiboot)
 
 ; Note: ESP (kernel stack) remains in kernel .bss section (16 KB)
-
-; ============================================================================
-; SECTION: MACROS
-; ============================================================================
-
-; Push a register onto the data stack (grows downward, EBP = data stack pointer)
-; Usage: dPush eax    (or any 32-bit register)
-macro dPush reg {
-    sub ebp, 4
-    mov [ebp], reg
-}
-
-; Pop a value from the data stack into a register
-; Usage: dPop eax     (or any 32-bit register)
-macro dPop reg {
-    mov reg, [ebp]
-    add ebp, 4
-}
-
-; Read top of stack into a register (non-destructive)
-; Usage: getTOS eax     (or any 32-bit register)
-macro getTOS reg {
-    mov reg, [ebp]
-}
-
-; Read next on stack (2nd element) into a register (non-destructive)
-; Usage: getNOS eax     (or any 32-bit register)
-macro getNOS reg {
-    mov reg, [ebp+4]
-}
-
-; Write to top of stack (non-destructive to SP)
-; Usage: setTOS eax     (or any 32-bit register)
-macro setTOS reg {
-    mov [ebp], reg
-}
-
-; Write to next on stack (2nd element, non-destructive to SP)
-; Usage: setNOS eax     (or any 32-bit register)
-macro setNOS reg {
-    mov [ebp+4], reg
-}
 
 ; ============================================================================
 ; SECTION: MULTIBOOT HEADER
@@ -136,13 +72,6 @@ keyboard_tail: dd 0             ; Read pointer
 ; Timer interrupt counter
 timer_ticks: dd 0               ; Incremented on each timer interrupt (IRQ0)
 
-; FORTH Dictionary pointers
-DICT_START = 0x00700800         ; Start of dictionary in memory
-HERE: dd DICT_START             ; Next free address (grows UP)
-LAST: dd 0                      ; Most recent word (0 initially, will point to last defined)
-
-; Note: EBP = data stack pointer (grows downward)
-
 ; IDT (Interrupt Descriptor Table) - 256 entries × 8 bytes
 section '.bss'
 idt: rb IDT_SIZE * IDT_ENTRY_SIZE
@@ -151,7 +80,7 @@ idt: rb IDT_SIZE * IDT_ENTRY_SIZE
 section '.data'
 idtr:
     dw IDT_SIZE * IDT_ENTRY_SIZE - 1  ; limit (size - 1)
-    dd idt                             ; base address
+    dd idt                            ; base address
 
 ; ============================================================================
 ; SECTION: BOOT & INITIALIZATION
@@ -254,7 +183,7 @@ scroll_screen:
 ; Write single character to VGA at cursor position
 ; Entry: AL = character
 ; Exit: cursor advanced, wraps to next line
-vga_putchar:
+vga_emit:
     push eax
     push ebx
     push ecx
@@ -317,7 +246,7 @@ vga_write:
     test al, al             ; check for null terminator
     jz .write_done
     
-    call vga_putchar
+    call vga_emit
     jmp .write_loop
     
 .write_done:
@@ -359,12 +288,23 @@ init_serial:
     pop eax
     ret
 
+; Write char in AL to serial port (COM1)
+; Entry: AL = character to send
+; Exit: character sent to serial port
+ser_emit:
+    push edx
+    mov dx, SERIAL_PORT
+    out dx, al
+    pop edx
+    ret
+
 ; Write null-terminated string to serial port (COM1)
 ; Entry: ESI = pointer to string
 ; Exit: string sent to serial port
 ser_write:
     push eax
     push edx
+    push esi
     
     mov dx, SERIAL_PORT
 .ser_write_loop:
@@ -376,6 +316,7 @@ ser_write:
     jmp .ser_write_loop
 
 .ser_write_done:
+    pop esi
     pop edx
     pop eax
     ret
@@ -385,6 +326,13 @@ ser_write:
 vga_ser_write:
     call vga_write
     call ser_write
+    ret
+
+; EMIT a char to both VGA and serial port (COM1)
+; Entry: AL = character to send
+vga_ser_emit:
+    call vga_emit
+    call ser_emit
     ret
 
 ; ============================================================================
@@ -621,21 +569,6 @@ keyboard_read:
     pop ebx
     ret
 
-; Check if keyboard buffer has data (non-blocking)
-; Exit: AL = 1 if data available, 0 if empty
-keyboard_has_data:
-    push ebx
-    
-    mov al, 0                    ; Default to 0 (no data)
-    mov ebx, [keyboard_tail]
-    cmp ebx, [keyboard_head]
-    je .kbd_exit                 ; If tail == head, buffer is empty
-    inc al                       ; Return 1 if data available
-    
-.kbd_exit:
-    pop ebx
-    ret
-
 ; Initialize PS/2 keyboard hardware
 init_ps2:
     push eax
@@ -687,219 +620,9 @@ timer_get_ticks:
     ret
 
 ; ============================================================================
-; SECTION: UTILITY FUNCTIONS
+include 'util.inc'
+include 'forth.inc'
 ; ============================================================================
-; Entry: EAX = number to convert, ESI = buffer (11+ bytes), ECX, width
-; Exit: ESI points to hex string "0xXXXXXXXX\0"
-hex_to_string:
-    push eax
-    push ebx
-    push ecx
-    push esi
-    
-    mov byte [esi], '0'
-    mov byte [esi + 1], 'x'
-    add esi, 2
-
-    cmp ecx, 8
-    jle .hex_loop
-    mov ecx, 8              ; Limit to 8 hex digits for 32-bit number
-    
-.hex_loop:
-    mov ebx, eax
-    shr ebx, 28             ; get top 4 bits
-    and ebx, 0x0F
-    
-    cmp bl, 9
-    jle .hex_digit
-    add bl, 7               ; A-F
-.hex_digit:
-    add bl, '0'
-    mov [esi], bl
-    inc esi
-    
-    shl eax, 4              ; shift left by 4 bits
-    dec ecx
-    jnz .hex_loop
-    
-    mov byte [esi], 0       ; null terminate
-    
-    pop esi
-    pop ecx
-    pop ebx
-    pop eax
-    ret
-
-; ============================================================================
-; SECTION: FORTH DICTIONARY & LOOKUP
-; ============================================================================
-
-; Dictionary lookup - find a word by name
-; Entry: ESI = pointer to name string (null-terminated), CL = string length
-; Exit: EBX = address of dictionary entry (or 0 if not found)
-dict_lookup:
-    push eax
-    push ecx
-    push edx
-    
-    mov ebx, [LAST]         ; Start at most recently defined word
-    
-.search_loop:
-    cmp ebx, 0              ; End of dictionary?
-    je .lookup_not_found
-    
-    ; Check length first: compare CL with bottom 5 bits of flags/len byte at [ebx + 8]
-    mov al, [ebx + 8]       ; Flags|Len byte
-    and al, 0x1F            ; Extract length (bottom 5 bits)
-    cmp al, cl              ; Compare lengths
-    jne .name_no_match      ; Length mismatch, try next entry
-    
-    ; Length matches, now compare name: [ebx + 9] is the name field
-    mov eax, ebx
-    add eax, 9              ; Point to name in entry
-    mov edx, esi            ; EDX is our search string pointer (preserve ESI on stack)
-    
-.name_compare:
-    mov al, [eax]           ; Byte from dictionary entry name
-    mov cl, [edx]           ; Byte from search string
-    
-    ; Convert both to uppercase for case-insensitive comparison
-    cmp al, 'a'
-    jl .al_ok
-    cmp al, 'z'
-    jg .al_ok
-    sub al, 32              ; Convert to uppercase
-.al_ok:
-    cmp cl, 'a'
-    jl .cl_ok
-    cmp cl, 'z'
-    jg .cl_ok
-    sub cl, 32              ; Convert to uppercase
-.cl_ok:
-    
-    cmp al, cl
-    jne .name_no_match      ; Bytes don't match
-    
-    test al, al             ; Check for null terminator (both should match)
-    je .lookup_found
-    
-    inc eax
-    inc edx
-    jmp .name_compare
-    
-.name_no_match:
-    mov ebx, [ebx]          ; Follow link to previous entry
-    jmp .search_loop
-    
-.lookup_found:
-    pop edx
-    pop ecx
-    pop eax
-    ret
-    
-.lookup_not_found:
-    xor ebx, ebx            ; Return 0 (not found)
-    pop edx
-    pop ecx
-    pop eax
-    ret
-
-; ============================================================================
-; DICTIONARY ENTRIES - Core Primitives
-; ============================================================================
-; Entry format: [Link(4)][XT(4)][Flags|Len(1)][Name(var)][NULL][Code]
-
-; CELL primitive - Push cell size onto stack
-; (-- cell-size)
-section '.data'
-dict_cell:
-    dd 0                    ; Link: 0 (no previous entry)
-    dd dict_cell_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "CELL", 0            ; Name: "CELL" with NULL
-dict_cell_XT:
-    mov eax, 4              ; Cell size is 4 bytes
-    dPush eax               ; Push cell size onto stack
-    ret
-
-; DUP primitive - Duplicate top of stack
-; (a -- a a)
-dict_dup:
-    dd dict_cell            ; Link
-    dd dict_dup_XT          ; XT: execution token (code address)
-    db 0x03                 ; Flags|Len: immediate=0, length=3
-    db "DUP", 0             ; Name: "DUP" with NULL
-dict_dup_XT:
-    getTOS eax              ; Read top of stack
-    dPush eax               ; Push duplicate
-    ret
-
-; DROP primitive - Remove top of stack
-; (a b -- a)
-dict_drop:
-    dd dict_dup             ; Link: points to DUP (previous entry)
-    dd dict_drop_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "DROP", 0            ; Name: "DROP" with NULL
-dict_drop_XT:
-    dPop eax                ; Pop and discard top of stack
-    ret
-
-; KEY? primitive - Check if keyboard buffer has data
-; Returns 1 (true) or 0 (false) on data stack
-; (-- flag)
-dict_keyq:
-    dd dict_drop            ; Link: points to DROP (previous entry)
-    dd dict_keyq_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "KEY?", 0            ; Name: "KEY?" with NULL
-dict_keyq_XT:
-    call keyboard_has_data  ; AL = 1 if data, 0 if empty
-    movzx eax, al           ; Zero-extend to 32-bit
-    dPush eax               ; Push result (1 or 0) onto stack
-    ret
-
-; SWAP primitive - Exchange top two stack elements
-; (a b -- b a)
-dict_swap:
-    dd dict_keyq            ; Link: points to KEY? (previous entry)
-    dd dict_swap_XT         ; XT: execution token (code address)
-    db 0x04                 ; Flags|Len: immediate=0, length=4
-    db "SWAP", 0            ; Name: "SWAP" with NULL
-dict_swap_XT:
-    getTOS eax              ; eax = a (TOS)
-    getNOS ebx              ; ebx = b (NOS)
-    setNOS eax              ; write a to 2nd
-    setTOS ebx              ; write b to TOS
-    ret
-
-; TIMER primitive - Get the current TIMER value
-; (-- ticks)
-dict_timer:
-    dd dict_swap            ; Link: points to SWAP (previous entry)
-    dd dict_timer_XT        ; XT: execution token (code address)
-    db 0x05                 ; Flags|Len: immediate=0, length=5
-    db "TIMER", 0           ; Name: "TIMER" with NULL
-dict_timer_XT:
-    call timer_get_ticks    ; EAX = timer ticks
-    dPush eax               ; Push timer ticks onto stack
-    ret
-
-; ADD primitive - Add top two stack elements
-; (a b -- sum)
-dict_add:
-    dd dict_timer           ; Link: points to TIMER (previous entry)
-    dd dict_add_XT          ; XT: execution token (code address)
-    db 0x01                 ; Flags|Len: immediate=0, length=1
-    db "+", 0               ; Name: "+" with NULL
-dict_add_XT:
-    dPop ebx                ; ebx = a (TOS)
-    getTOS eax              ; eax = b (NOS)
-    add eax, ebx            ; a + b
-    setTOS eax              ; write result to TOS
-    ret
-
-; TODO: Add more primitives (+, -, *, /, etc.)
 
 ; ============================================================================
 ; SECTION: MAIN KERNEL FUNCTION
@@ -919,43 +642,28 @@ kernel_main:
     sti                      ; Enable interrupts
     
     ; Initialize other stuff
-    mov ebp, DATA_STK_BASE   ; Data stack pointer (EBP)
     call init_serial         ; Serial port
-    
-    ; Set LAST to the last defined word
-    mov dword [LAST], dict_add 
 
     call kernel_clear        ; Clear VGA screen
-    mov esi, msg_started     ; Print startup message
-    call vga_ser_write
-    
-    mov esi, msg_magic       ; Print magic number
-    call vga_ser_write
+    mov esi, msg_started
+    call vga_ser_write       ; Print "Kernel started!" to VGA and serial
 
-    ; Load and display the multiboot magic number
-    mov eax, [multiboot_magic]
-    mov esi, hex_buffer
-    mov ecx, 8
-    call hex_to_string
-    mov esi, hex_buffer
-    call vga_ser_write
-
-    ; Print completion message
-    mov esi, msg_complete
-    call vga_ser_write
+    call init_forth          ; Initialize FORTH dictionary and state
+    call run_forth           ; Run the Forth system
 
     ; Halt the CPU
+    mov esi, msg_halt
+    call vga_ser_write       ; Print "Halting..." to VGA and serial
 .kernel_halt:
-    cli
+    cli                      ; Disable interrupts
     hlt
     jmp .kernel_halt
 
 ; ============================================================================
-; SECTION: DATA & STRINGS
+; SECTION: TEST DATA & STRINGS
 ; ============================================================================
 
 section '.data'
 msg_started: db "Kernel started!", 10, 0
-msg_magic: db "Magic: ", 0
-msg_complete: db 10, "Boot complete! Halting...", 10, 0
+msg_halt: db 10, "Halting.", 10, 0
 hex_buffer: db "0x00000000", 0

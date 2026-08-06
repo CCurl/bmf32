@@ -61,13 +61,15 @@ make run      # Build and run in QEMU window
 ```
 0x01FFFFFF  ┌─────────────────────────────┐
             │ User Dictionary (grows UP)  │ ~15 MB free
-0x000C0000  ├─────────────────────────────┤
+0x00100000  ├─────────────────────────────┤
             │ Free space                  │ ~1280 KB
 0x000BFFFF  ├─────────────────────────────┤
             │ VGA text (HW)               │ 4 KB
 0x000B8000  ├─────────────────────────────┤
+            │ Graphics (HW)               │
+0x000A0000  ├─────────────────────────────┤
             │ Free space                  │
-            │ Data Stack      0x0008F000  │
+            │ Data Stack      0x00090000  │
             │ TIB             0x00080000  │ ~657 KB
             │ Return Stack                │
             │ Kernel                      │ 

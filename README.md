@@ -8,6 +8,7 @@ Currently runs under QEMU (the 32-bit x86 emulator) using the `-kernel` option.
 
 - **32-bit x86 protected mode**: Full x86-32 architecture support
 - **Pure Assembly (FASM)**: Only dependency is on an assembler
+- **Tiny kernel**: 6 KB executable in a 32 KB pocket (0x00010000-0x00017FFF)
 - **VGA text console**: 80×25 text mode output (0xB8000)
 - **Serial output**: COM1 (0x3F8) for debugging/secondary output
 - **Interrupt system**: IDT + 8259 PIC with PS/2 keyboard handler
@@ -60,17 +61,17 @@ make run      # Build and run in QEMU window
 ```
 0x01FFFFFF  ┌─────────────────────────────┐
             │ User Dictionary (grows UP)  │ ~15 MB free
-0x00600500  ├─────────────────────────────┤
-            │ Buffer                      │ 256 bytes
-0x00600400  ├─────────────────────────────┤
-            │ Data stack (grows DOWN)     │ 1 KB, 256 entries
-0x00600000  ├─────────────────────────────┤
-            │ Graphics buffer             │ 4 MB
-0x00200000  ├─────────────────────────────┤
-            │ Kernel + ESP stack          │ 1 MB (16 KB stack)
-0x00100000  ├─────────────────────────────┤
+0x000C0000  ├─────────────────────────────┤
+            │ Free space                  │ ~1280 KB
+0x000BFFFF  ├─────────────────────────────┤
             │ VGA text (HW)               │ 4 KB
 0x000B8000  ├─────────────────────────────┤
+            │ Free space                  │
+            │ Data Stack      0x0008F000  │
+            │ TIB             0x00080000  │ ~657 KB
+            │ Return Stack                │
+            │ Kernel                      │ 
+0x00010000  ├─────────────────────────────┤
             │ BIOS / System               │
 0x00000000  └─────────────────────────────┘
 ```
@@ -78,7 +79,8 @@ make run      # Build and run in QEMU window
 ## Kernel Components
 
 ### Bootloader (_start)
-- Stack setup (ESP -- stack_top, 16 KB kernel stack)
+- Loads at 0x00010000 (32 KB pocket below 1 MB)
+- Stack setup (ESP → stack_top, 16 KB kernel stack)
 - Calls kernel_main
 
 ### IDT & PIC (Interrupt Handling)
@@ -176,14 +178,13 @@ objdump -M intel -d kernel.elf  # Intel syntax
 objdump -s -j .multiboot kernel.elf | head -5
 ```
 
-## Known Limitations / TODOs
+## TODOs
 
 - [x] Stack abstraction (EBP-based data stack)
 - [x] Dictionary infrastructure
 - [ ] Core primitives (in progress)
 - [x] Number parsing (numq with multiple bases)
 - [x] Dictionary lookup (case-insensitive)
-- [ ] FORTH interpreter loop
 - [ ] Scancode -> ASCII conversion (raw scancodes in buffer)
 - [ ] Graphics buffer allocated but unused
 - [ ] Disk support

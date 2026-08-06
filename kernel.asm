@@ -16,7 +16,6 @@ MULTIBOOT_HEADER_FLAGS = 0x00000003
 MULTIBOOT_CHECKSUM = -(MULTIBOOT_HEADER_MAGIC + MULTIBOOT_HEADER_FLAGS)
 
 ; VGA Text Mode Console
-VGA_ADDRESS = 0xB8000
 VGA_WIDTH = 80
 VGA_HEIGHT = 25
 
@@ -27,13 +26,12 @@ SERIAL_PORT = 0x3F8
 ; MEMORY LAYOUT (32 MB total)
 ; ============================================================================
 
-DICT_START     = 0x00600500  ; Dictionary (grows UP)
-DATA_STK_BASE  = 0x00600400  ; Data stack (grows DOWN)
-GRAPHICS_END   = 0x005FFFFF  ; Graphics buffer end
-GRAPHICS_START = 0x00200000  ; Graphics buffer start (4 MB)
-WORD_START     = 0x00180200  ; Word buffer (256 bytes)
-TIB_START      = 0x00180000  ; Text Input Buffer (512 bytes)
-KERNEL_START   = 0x00100000  ; Kernel entry point (GRUB multiboot)
+DICT_START     = 0x000C0000  ; Dictionary (grows UP)
+VGA_ADDRESS    = 0x000B8000  ; VGA text buffer (80x25 × 2 bytes = 4 KB)
+WORD_START     = 0x00090000  ; Word buffer (256 bytes)
+DATA_STK_BASE  = 0x0008F000  ; Data stack (grows DOWN)
+TIB_START      = 0x00080000  ; Text Input Buffer (512 bytes)
+KERNEL_START   = 0x00010000  ; Kernel entry point (32 KB pocket)
 
 ; Note: ESP (kernel stack) remains in kernel .bss section (16 KB)
 
@@ -663,7 +661,6 @@ kernel_main:
 ; SECTION: TEST DATA & STRINGS
 ; ============================================================================
 
-section '.data'
 msg_started: db "Kernel started!", 10, 0
 msg_halt: db 10, "Halting.", 10, 0
 hex_buffer: db "0x00000000", 0

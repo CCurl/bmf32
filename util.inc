@@ -26,6 +26,25 @@ streq:
     pop ebx
     ret
 
+; ============================================================================
+; strcpy - copy null-terminated string from ESI to EDI
+; Entry: ESI = source string, EDI = destination buffer
+; Exit: no registers modified, destination string is null-terminated
+strcpy:
+    push eax
+    push ecx
+    xor ecx, ecx
+
+.loop:
+    mov al, [esi+ecx]
+    mov [edi+ecx], al
+    inc ecx
+    test al, al
+    jnz .loop
+
+    pop ecx
+    pop eax
+    ret
 
 ; ============================================================================
 ; hex_to_string - convert a number to a hex string

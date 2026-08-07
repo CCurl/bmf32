@@ -1,6 +1,14 @@
 ; ============================================================================
 ; Tests
 ; ============================================================================
+dictEntry pass, "PASS", 5, 0
+    dPush msgPass
+    jmp XT_zType
+
+dictEntry fail, "FAIL", 4, 0
+    dPush msgFail
+    jmp XT_zType
+
 ;    : test1 1 LIT 16 CELLS + EMIT ;
 dictEntry test1, "TEST1", 5, 0
     dPush 12345
@@ -24,13 +32,27 @@ dictEntry test3, "TEST3", 5, 0
     dPush 'N'
     jmp XT_emit
 
-;    : test4 'N' X! IF 'Y' X! THEN X@ EMIT ;
+;    : test4 ( a b-- ) .EQ .IF 'Y' EMIT EXIT THEN 'N' EMIT ;
 dictEntry test4, "TEST4", 5, 0
-    ret
+    call XT_dotEQ
+    jne .emitN
+    dPush 'Y'
+    jmp XT_emit
+.emitN:
+    dPush 'N'
+    jmp XT_emit
 
 ;    : test5 'N' SWAP IF DROP 'Y' THEN EMIT ;
 dictEntry test5, "TEST5", 5, 0
-    ret
+    dPush 'N'
+    call XT_swap
+    dPop eax
+    test eax, eax
+    jz .emit
+    call XT_drop
+    dPush 'Y'
+.emit:
+    jmp XT_emit
 
 dictEntry testHW, "TEST-HW", 7, 0
     dPush helloWorld
@@ -73,8 +95,18 @@ dictEntry tests, "TESTS", 5, 0
     dPush 0
     call XT_test3
     call XT_space
+    dPush 123
+    dPush 123
     call XT_test4
+    dPush 111
+    dPush 222
+    call XT_test4
+    call XT_space
+    dPush 123
     call XT_test5
+    dPush 0
+    call XT_test5
+    call XT_space
     call XT_testWord
     ret
 
@@ -85,8 +117,8 @@ dictEntry tests, "TESTS", 5, 0
 
 ; Test strings for numq
 msg_test: db 10, "Testing numq:", 10, 0
-msg_test_pass: db " => ", 0
-msg_test_fail: db " => FAIL", 10, 0
+msgPass: db " - PASS", 10, 0
+msgFail: db " - FAIL", 10, 0
 
 test_str_1: db "'A'", 0          ; Char literal: should be 65
 test_str_2: db "$FF", 0          ; Hex: should be 255

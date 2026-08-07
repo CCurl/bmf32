@@ -7,6 +7,8 @@
 ; Note: ESI = instruction pointer (points to next instruction to execute)
 
 CELL_SZ equ 4
+TOS equ [ebp]          ; Top of stack
+NOS equ [ebp+CELL_SZ]  ; Next on stack
 
 ; ============================================================================
 ; SECTION: MACROS
@@ -17,7 +19,7 @@ CELL_SZ equ 4
 ; Note: 'MOV DWORD EAX, [EBP]' is machine code '$8B $45 $00'
 ; Note: 'MOV DWORD EBX, [EBP]' is machine code '$8B $5D $00'
 macro getTOS reg {
-    mov reg, [ebp]
+    mov reg, TOS
 }
 
 ; Write to top of stack (non-destructive to SP)
@@ -26,14 +28,14 @@ macro getTOS reg {
 ; Note: 'MOV DWORD [ebp], ebx' is machine code '$89 $5D $00'
 ; Note: 'MOV DWORD [ebp], $12345678' is machine code '$C7 $45 $00 $78 $56 $34 $12'
 macro setTOS regVal {
-    mov DWORD [ebp], regVal
+    mov DWORD TOS, regVal
 }
 
 ; Push a value onto the data stack (grows downward, EBP = data stack pointer)
 ; Usage: dPush eax    (or any 32-bit value)
 ; Note: 'SUB EBP, 4' is machine code '$83 $ED $04'
 macro dPush regVal {
-    sub ebp, CELL_SZ
+    lea ebp, [ebp-CELL_SZ]
     setTOS regVal
 }
 
@@ -41,7 +43,7 @@ macro dPush regVal {
 ; Usage: dDrop (no operands)
 ; Note: 'ADD EBP, 4' is machine code '$83 $C5 $04'
 macro dDrop {
-    add ebp, CELL_SZ
+    lea ebp, [ebp+CELL_SZ]
 }
 
 ; Pop a value from the data stack into a register
@@ -205,6 +207,25 @@ dictEntry div, "/", 1, 0
     setTOS eax
     ret
 
+; = primitive - Compare top two stack elements for equality
+; ( a b -- flag )
+dictEntry eq, "=", 1, 0
+    dPop ebx
+    getTOS eax
+    cmp eax, ebx
+    sete al
+    movzx eax, al
+    setTOS eax
+    ret
+
+; .EQ primitive - Compare top two stack elements for equality
+; ( a b -- flag )
+dictEntry dotEQ, ".EQ", 3, 0
+    dPop ebx
+    dPop eax
+    cmp eax, ebx
+    ret
+
 ; /MOD primitive - Divide top two stack elements and return remainder
 ; ( a b -- quotient remainder )
 dictEntry mod, "/MOD", 4, 0
@@ -309,23 +330,27 @@ dictEntry strlen, "S-LEN", 5, 0
 ; S-EQ primitive - Compare two strings for equality
 ; ( s1 s2 -- f )
 dictEntry streq, "S-EQ", 4, 0
-    push esi                 ; Save instruction pointer
     dPop esi                 ; string 2
     getTOS edi               ; string 1
     setTOS 0                 ; Default to 0 (not equal)
     call streq
     jnz .exit
-    setTOS 1                 ; Strings are equal
+    inc byte TOS
 .exit:
-    pop esi                  ; Restore instruction pointer
     ret
+
+; S-CPY primitive - Copy string from src to dst
+; ( dst src -- dst )
+dictEntry strcpy, "S-CPY", 5, 0
+    dPop esi                 ; src
+    getTOS edi               ; dst
+    jmp strcpy
 
 ; EMIT primitive - Output character on TOS
 ; ( ch -- )
 dictEntry emit, "EMIT", 4, 0
     dPop eax
-    call vga_ser_emit
-    ret
+    jmp vga_ser_emit
 
 ; COMMA primitive - store TOS value at HERE, increment HERE by 4
 ; ( N-- )
@@ -349,7 +374,6 @@ dictEntry ccomma, "C,", 2, 0
 ; ( -- )
 dictEntry words, "WORDS", 5, 0
     mov eax, [LAST]         ; Start at most recently defined word
-    push esi                ; Save ESI for later
 .words_loop:
     cmp eax, 0              ; End of dictionary?
     je .words_done
@@ -363,7 +387,6 @@ dictEntry words, "WORDS", 5, 0
     mov eax, [eax]          ; Next word in dictionary
     jmp .words_loop
 .words_done:
-    pop esi                 ; Restore ESI
     ret
 
 ; Dictionary lookup - find a word by name

@@ -28,10 +28,10 @@ SERIAL_PORT = 0x3F8
 
 DICT_START     = 0x00100000  ; Dictionary (grows UP)
 VGA_ADDRESS    = 0x000B8000  ; VGA text buffer (80x25 × 2 bytes = 4 KB)
-WORD_START     = 0x00091000  ; Word buffer (256 bytes)
-DATA_STK_BASE  = 0x00090000  ; Data stack (grows DOWN)
-TIB_START      = 0x00080000  ; Text Input Buffer (512 bytes)
-KERNEL_START   = 0x00010000  ; Kernel entry point (32 KB pocket)
+WORD_START     = 0x0009F000  ; Word buffer (256 bytes)
+DATA_STK_BASE  = 0x0009E000  ; Data stack (grows DOWN)
+TIB_START      = 0x0009A000  ; Text Input Buffer (16 KB)
+KERNEL_START   = 0x00010000  ; Kernel entry point
 
 ; Note: ESP (kernel stack) remains in kernel .bss section (16 KB)
 

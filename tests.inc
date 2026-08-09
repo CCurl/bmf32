@@ -62,7 +62,13 @@ dictEntry testNumq, "TEST-NUMQ", 9, 0
 ; TEST-DICT - Test FIND primitive
 ; Tests dictionary lookup with various word names
 dictEntry testDict, "TEST-DICT", 9, 0
-    ret                ; TODO: implement dictionary lookup tests
+    dPush 1
+    dPush 2
+    dPush 3
+    call XT_add
+    call XT_add
+    call XT_pDot
+    jmp XT_space
 
 ; TEST-WORD - Test WORD primitive
 ; Tests word parsing from input stream
@@ -73,11 +79,13 @@ dictEntry testWord, "TEST-WORD", 9, 0
     call XT_word
     call XT_pDot
     call XT_space
+    call XT_wordAddr
     call XT_zType
     call XT_space
     call XT_word
     call XT_pDot
     call XT_space
+    call XT_wordAddr
     call XT_zType
     jmp XT_cr
 
@@ -96,6 +104,7 @@ dictEntry tests, "TESTS", 5, 0
     call XT_test5
     call XT_space
     call XT_testWord
+    call XT_testDict
     ret
 
 ; ============================================================================

@@ -1,20 +1,20 @@
 ; ============================================================================
-; This Forth system is inspired by Tachyon
+; This Forth system is subroutine threaded
 ; ============================================================================
 
-; Note: EBP = data stack pointer (grows downward)
-; Note: ESP = return stack pointer (grows downward)
-; Note: ESI = instruction pointer (points to next instruction to execute)
+; Note: EAX is the top of the stack (TOS) (future)
+; Note: EBP is the data stack pointer (grows downward)
+; Note: ESP is the return stack pointer (grows downward)
 
-CELL_SZ equ 4
+CELL_SZ equ "4"
 TOS equ [ebp]          ; Top of stack
 NOS equ [ebp+CELL_SZ]  ; Next on stack
-R1 equ EAX
-R2 equ EBX
-R3 equ ECX
-R4 equ EDX
-R5 equ ESI
-R6 equ EDI
+; TOS equ EAX
+R1 equ EBX
+R2 equ ECX
+R3 equ EDX
+R4 equ ESI
+R5 equ EDI
 
 ; ============================================================================
 ; SECTION: MACROS
@@ -110,8 +110,8 @@ XT_##nameId:
 ; DUP primitive - Duplicate top of stack
 ; ( a -- a a )
 dictEntry dup, "DUP", 3, 0
-    getTOS R2
-    dPush R2
+    getTOS R1
+    dPush R1
     ret
 
 ; DROP primitive - Remove top of stack
@@ -130,8 +130,8 @@ dictEntry drop, "DROP", 4, 0
 ; ( -- flag )
 dictEntry keyq, "KEY?", 4, 0
     dPush 0                  ; Default to 0 (no data)
-    mov R2, [keyboard_tail]
-    cmp R2, [keyboard_head]
+    mov R1, [keyboard_tail]
+    cmp R1, [keyboard_head]
     je .keyq_exit            ; If tail == head, buffer is empty
     setTOS 1                 ; Return 1 if data available
 .keyq_exit:                  ; If tail == head, buffer is empty
@@ -140,172 +140,168 @@ dictEntry keyq, "KEY?", 4, 0
 ; SWAP primitive - Exchange top two stack elements
 ; ( a b -- b a )
 dictEntry swap, "SWAP", 4, 0
-    getTOS R2
-    getNOS R3
-    setTOS R3
-    setNOS R2
+    getTOS R1
+    getNOS R2
+    setTOS R2
+    setNOS R1
     ret
 
 ; OVER primitive - push NOS
 ; ( a b -- a b a )
 dictEntry over, "OVER", 4, 0
-    getNOS R2
-    dPush R2
+    getNOS R1
+    dPush R1
     ret
 
 ; TIMER primitive - Get the current TIMER value
 ; ( -- ticks )
 dictEntry timer, "TIMER", 5, 0
-    mov R2, [timer_ticks]
-    dPush R2
+    mov R1, [timer_ticks]
+    dPush R1
     ret
 
 ; ADD primitive - Add top two stack elements
 ; ( a b -- sum )
 dictEntry add, "+", 1, 0
-    dPop R2
-    getTOS R2
-    add R2, R3
-    setTOS R2
+    dPop R1
+    getTOS EAX
+    add EAX, R1
+    setTOS EAX
     ret
 
 ; SUB primitive - Subtract top two stack elements
 ; ( a b -- diff )
 dictEntry sub, "-", 1, 0
-    dPop R2
-    getTOS R2
-    sub R2, R3
-    setTOS R2
+    dPop R1
+    getTOS EAX
+    sub EAX, R1
+    setTOS EAX
     ret
 
 ; MULT primitive - Multiply top two stack elements
 ; ( a b -- product )
 dictEntry mult, "*", 1, 0
-    dPop R2
-    getTOS R1
-    imul R1, R2
-    setTOS R1
+    dPop R1
+    getTOS EAX
+    imul EAX, R1
+    setTOS EAX
     ret
 
 ; DIV primitive - Divide top two stack elements
 ; ( a b -- quotient )
 dictEntry div, "/", 1, 0
-    dPop R2
-    getTOS R1
+    dPop R1
+    getTOS EAX
     cdq                     ; Sign-extend EAX into EDX:EAX
-    idiv R2
-    setTOS R1
+    idiv R1
+    setTOS EAX
     ret
 
 ; /MOD primitive - Divide top two stack elements and return remainder
 ; ( a b -- quotient remainder )
 dictEntry mod, "/MOD", 4, 0
     call XT_div
-    dPush R4               ; Remainder
+    dPush R3               ; Remainder
     ret
 
 ; = primitive - Compare top two stack elements for equality
 ; ( a b -- flag )
 dictEntry eq, "=", 1, 0
-    dPop R2
-    getTOS R3
-    cmp R3, R2
+    dPop R1
+    getTOS R2
+    cmp R2, R1
     sete bl
-    movzx R3, bl
-    setTOS R3
+    movzx R2, bl
+    setTOS R2
     ret
 
 ; AND primitive - Bitwise AND top two stack elements
 ; ( a b -- a&b )
 dictEntry and, "AND", 3, 0
-    dPop R2
-    getTOS R1
-    and R1, R2
-    setTOS R1
+    dPop R1
+    getTOS EAX
+    and EAX, R1
+    setTOS EAX
     ret
 
 ; OR primitive - Bitwise OR top two stack elements
 ; ( a b -- a|b )
 dictEntry or, "OR", 2, 0
-    dPop R2
-    getTOS R1
-    or R1, R2
-    setTOS R1
+    dPop R1
+    getTOS EAX
+    or EAX, R1
+    setTOS EAX
     ret
 
 ; XOR primitive - Bitwise XOR top two stack elements
 ; ( a b -- a^b )
 dictEntry xor, "XOR", 3, 0
-    dPop R2
-    getTOS R1
-    xor R1, R2
-    setTOS R1
+    dPop R1
+    getTOS EAX
+    xor EAX, R1
+    setTOS EAX
     ret
 
 ; COM primitive - Bitwise complement (NOT) of top of stack
 ; ( a -- ~a )
 dictEntry com, "COM", 3, 0
-    getTOS R1
-    not R1
-    setTOS R1
+    getTOS EAX
+    not EAX
+    setTOS EAX
     ret
 
 ; NUMBER? primitive - Check if string is a number
 ; ( str -- (num 1) | 0 )
 dictEntry numq, "NUMBER?", 7, 0
-    dPop R4
-    push esi                ; Save instruction pointer
-    mov esi, R4
+    dPop esi
     call numq               ; Check if string in ESI is a number
-    pop esi                 ; Restore instruction pointer
-    test R1, R1             ; Check if numq returned 0 (not a number)
+    test EAX, EAX             ; Check if numq returned 0 (not a number)
     jz .no
-    dPush R3                ; Push the parsed number
+    dPush R2                ; Push the parsed number
 .no:                        ; If not a number, push 0 as the flag
-    dPush R1
+    dPush EAX
     ret
 
 ; WORD primitive - parse the next word from >IN
-; ( --a len )
+; ( --len )
 dictEntry word, "WORD", 4, 0
-    xor R3, R3              ; Length
-    mov R2, [TO_IN]         ; Load TO_IN into R2
-    mov R5, WORD_START
+    xor R2, R2              ; Length
+    mov R1, [TO_IN]         ; Load TO_IN into R1
+    mov R4, WORD_START
 .skip_ws:                   ; Skip leading whitespace
-    mov dl, [R2]
+    mov dl, [R1]
     test dl, dl             ; end of string?
     jz .done
     cmp dl, 32
     jg .collect_wd
-    inc R2
+    inc R1
     jmp .skip_ws
 .collect_wd:                ; Collect characters until whitespace or null
-    mov [R5+R3], dl
+    mov [R4+R2], dl
+    inc R1
     inc R2
-    inc R3
-    mov dl, [R2]
+    mov dl, [R1]
     cmp dl, 32
     jg .collect_wd
 .done:
-    mov [TO_IN], R2
-    mov BYTE [R5+R3], 0     ; NULL terminate the word
-    dPush R5
-    dPush R3
+    mov [TO_IN], R1
+    mov BYTE [R4+R2], 0     ; NULL terminate the word
+    dPush R2
     ret
 
 ; S-LEN primitive - Get string length
 ; ( str -- len )
 dictEntry strlen, "S-LEN", 5, 0
-    getTOS R4               ; String pointer
-    xor R3, R3              ; R3 = length counter
+    getTOS R3               ; String pointer
+    xor R2, R2              ; R2 = length counter
 .loop:
-    mov bl, [R4+R3]
+    mov bl, [R3+R2]
     test bl, bl
     jz .done
-    inc R3
+    inc R2
     jmp .loop
 .done:
-    setTOS R3
+    setTOS R2
     ret
 
 ; S-EQ primitive - Compare two strings for equality
@@ -330,24 +326,24 @@ dictEntry strcpy, "S-CPY", 5, 0
 ; EMIT primitive - Output character on TOS
 ; ( ch -- )
 dictEntry emit, "EMIT", 4, 0
-    dPop R1
+    dPop EAX
     jmp vga_ser_emit
 
 ; COMMA primitive - store TOS value at HERE, increment HERE by 4
 ; ( N-- )
 dictEntry comma, ",", 1, 0
-    dPop R1
-    mov R4, [HERE]          ; Get current HERE address
-    mov [R4], R1            ; Store TOS value at HERE
+    dPop EAX
+    mov R3, [HERE]          ; Get current HERE address
+    mov [R3], EAX            ; Store TOS value at HERE
     add dword [HERE], 4     ; Increment HERE by 4 (cell size)
     ret
 
 ; CCOMMA primitive - store TOS byte at HERE, increment HERE by 1
 ; ( B-- )
 dictEntry ccomma, "C,", 2, 0
-    dPop R1
-    mov R4, [HERE]          ; Get current HERE address
-    mov [R4], al            ; Store TOS byte at HERE
+    dPop EAX
+    mov R3, [HERE]          ; Get current HERE address
+    mov [R3], al            ; Store TOS byte at HERE
     add dword [HERE], 1     ; Increment HERE by 1 (byte size)
     ret
 
@@ -356,8 +352,8 @@ dictEntry ccomma, "C,", 2, 0
 dictEntry words, "WORDS", 5, 0
     mov R1, [LAST]          ; Start at most recently defined word
 .words_loop:
-    cmp R1, 0               ; End of dictionary?
-    je .words_done
+    test R1, R1             ; End of dictionary?
+    jz .words_done
     push R1                 ; Print the word name
     mov esi, R1             ; Set ESI: word name address
     add esi, 10
@@ -373,46 +369,38 @@ dictEntry words, "WORDS", 5, 0
 ; Dictionary lookup - find a word by name
 ; (str -- addr | 0)
 dictEntry find, "FIND", 4, 0
-    push esi                ; Save Forth instruction pointer
-    call XT_dup             ; Get length of search string in R3
+    call XT_dup             ; Get length of search string in R2
     call XT_strlen
-    dPop R3                 ; R3 = length of search string
+    dPop R2                 ; R2 = length of search string
     getTOS esi              ; Get pointer to name string from TOS
-    push R3                 ; Save length on stack
-    mov R1, [LAST]          ; Start at most recently defined word
+    push R2                 ; Save length on stack
+    mov EAX, [LAST]          ; Start at most recently defined word
     
 .search_loop:
-    test R1, R1             ; End of dictionary?
-    je .find_exit
+    test EAX, EAX             ; End of dictionary?
+    jz .find_exit
     
     ; Check length first: compare CL with length byte at [EAX + 9]
     mov cl, [esp]           ; Restore length into CL
-    mov bl, [R1 + 9]        ; Length byte
+    mov bl, [EAX + 9]        ; Length byte
     cmp bl, cl              ; Compare lengths
     jne .name_no_match      ; Length mismatch, try next entry
     
     ; Length matches, now compare name: [EAX + 10] is the name field
-    mov edi, R1
+    mov edi, EAX
     add edi, 10             ; Point to name in entry
 
     call streq              ; Compare search string (ESI) with entry name (EDI)
     jz .find_exit           ; If equal (ZF=1), found the word
 
 .name_no_match:
-    mov R1, [R1]          ; Follow link to previous entry
+    mov EAX, [EAX]          ; Follow link to previous entry
     jmp .search_loop
     
 ; EAX already contains either the address or 0 (not found)
 .find_exit:           
-    setTOS R1
-    pop R3                 ; Clean up stack
-    pop esi                 ; Restore Forth instruction pointer
-    ret
-
-; CELL primitive - Push cell size onto stack
-; (-- cell-size)
-dictEntry cell, "CELL", 4, 0
-    dPush 4
+    setTOS EAX
+    pop R2                 ; Clean up stack
     ret
 
 ; 1+ primitive - Increment TOS by 1
@@ -430,102 +418,102 @@ dictEntry oneMinus, "1-", 2, 0
 ; FETCH primitive - Fetch a cell from memory
 ; ( addr -- value )
 dictEntry fetch, "@", 1, 0
-    getTOS R1
-    mov R2, [R1]
-    setTOS R2
+    getTOS EAX
+    mov R1, [EAX]
+    setTOS R1
     ret
 
 ; STORE primitive - Store a cell into memory
 ; ( value addr -- )
 dictEntry store, "!", 1, 0
-    dPop R2                ; Address to store into
-    dPop R1                ; Value to store
-    mov [R2], R1
+    dPop R1                ; Address to store into
+    dPop EAX                ; Value to store
+    mov [R1], EAX
     ret
 
 ; CFETCH primitive - Fetch a cell from memory
 ; ( addr -- value )
 dictEntry cFetch, "C@", 2, 0
-    getTOS R1
-    movzx R2, byte [R1]
-    setTOS R2
+    getTOS EAX
+    movzx R1, byte [EAX]
+    setTOS R1
     ret
 
 ; CSTORE primitive - Store a cell into memory
 ; ( value addr -- )
 dictEntry cStore, "C!", 2, 0
-    dPop R2                ; Address to store into
-    dPop R1                ; Value to store
-    mov [R2], al
+    dPop R1                ; Address to store into
+    dPop EAX                ; Value to store
+    mov [R1], al
     ret
 
 ; X@ primitive - Fetch X
 ; ( -- value )
 dictEntry xFetch, "X@", 2, 0
-    mov R2, [xVal]
-    dPush R2
+    mov R1, [xVal]
+    dPush R1
     ret
 xVal:  dd 0
 
 ; X! primitive - Store X
 ; ( value -- )
 dictEntry xStore, "X!", 2, 0
-    dPop R2
-    mov [xVal], R2
+    dPop R1
+    mov [xVal], R1
     ret
 
 ; Y@ primitive - Fetch Y
 ; ( -- value )
 dictEntry yFetch, "Y@", 2, 0        
-    mov R2, [yVal]
-    dPush R2
+    mov R1, [yVal]
+    dPush R1
     ret
 yVal:  dd 0
 
 ; Y! primitive - Store Y
 ; ( value -- )
 dictEntry yStore, "Y!", 2, 0
-    dPop R2
-    mov [yVal], R2
+    dPop R1
+    mov [yVal], R1
     ret
 
 ; Z@ primitive - Fetch Z
 ; ( -- value )
 dictEntry zFetch, "Z@", 2, 0
-    mov R2, [zVal]
-    dPush R2
+    mov R1, [zVal]
+    dPush R1
     ret
 zVal:  dd 0
 
 ; Z! primitive - Store Z
 ; ( value -- )
 dictEntry zStore, "Z!", 2, 0
-    dPop R2
-    mov [zVal], R2
+    dPop R1
+    mov [zVal], R1
     ret
 
 ; >L primitive - Move to local stack
 ; ( value -- )
 dictEntry toLStk, ">L", 2, 0
-    dPop R3
+    dPop R2
     add DWORD [LSP], CELL_SZ
-    mov R2, [LSP]
-    mov [R2], R3
+    mov R1, [LSP]
+    mov [R1], R2
     ret
 
 ; L@ primitive - Fetch from local stack
 ; ( -- value )
 dictEntry atLStk, "L@", 2, 0
-    mov R2, [LSP]
-    mov R3, [R2]
-    dPush R3
+    mov R1, [LSP]
+    mov R2, [R1]
+    dPush R2
     ret
 
 ; L> primitive - Move from local stack
 ; ( -- value )
 dictEntry fromLStk, "L>", 2, 0
     call XT_atLStk
-    cmp R2, LSTK
+    cmp R1, LSTK
     jle .under
     sub DWORD [LSP], CELL_SZ
     ret
@@ -534,8 +522,8 @@ dictEntry fromLStk, "L>", 2, 0
     ret
 
 dictEntry lspAddr, "(LSP)", 5, 0
-    mov R2, LSP
-    dPush R2
+    mov R1, LSP
+    dPush R1
     ret
 
 dictEntry zType, "ZTYPE", 5, 0
@@ -548,11 +536,11 @@ dictEntry zType, "ZTYPE", 5, 0
 ; I>A primitive - Convert integer to ASCII string
 ; ( n -- addr len )
 dictEntry iToA, "I>A", 3, 0
-    dPop R1
-    mov R2, [BASE]
+    dPop EAX
+    mov R1, [BASE]
     call iToA
+    dPush R2
     dPush R3
-    dPush R4
     ret
 
 ; ============================================================================
@@ -562,9 +550,13 @@ dictEntry iToA, "I>A", 3, 0
 ; ============================================================================
 ; FORTH system words
 ; ============================================================================
+dictEntry wordAddr, "(WORD)", 6, 0
+    dPush WORD_START
+    ret
+
 dictEntry toIn, ">IN", 3, 0
-    mov R2, TO_IN
-    dPush R2
+    mov R1, TO_IN
+    dPush R1
     ret
 
 dictEntry base, "BASE", 4, 0
@@ -604,26 +596,27 @@ dictEntry pDot, "(.)", 3, 0
 ; ============================================================================
 ; : outer ( str -- )
 dictEntry outer, "OUTER", 5, 0
-    mov R2, [TO_IN]         ; Save >IN
-    push R2
-    dPop R2                 ; Get input string
-    mov [TO_IN], R2         ; Set >IN
+    mov R1, [TO_IN]         ; Save >IN
+    push R1
+    dPop R1                 ; Get input string
+    mov [TO_IN], R1         ; Set >IN
 .loop:
     call XT_word            ; Parse next word into buffer at WORD_START
-    dPop R2                 ; Get length of parsed word
-    test R2, R2             ; If length is 0, we're done
+    dPop R1                 ; Get length of parsed word
+    test R1, R1             ; If length is 0, we're done
     jz .done
     ; TODO: Check if word is a number
     ; TODO: Check if word is in dictionary
     ; TODO: If not found, print error message
     ; TODO: Execute the word if found
     ; TEMP: Output the parsed word
+    call XT_wordAddr        ; TEMP
     call XT_zType           ; TEMP
     call XT_space           ; TEMP
     jmp .loop
 .done:
-    pop R2                  ; Restore >IN
-    mov [TO_IN], R2
+    pop R1                  ; Restore >IN
+    mov [TO_IN], R1
     ret
 
 ; ============================================================================
@@ -632,8 +625,8 @@ dictEntry outer, "OUTER", 5, 0
 ;   : COLD ... ;
 dictEntry cold, "COLD", 4, 0
     mov ebp, DATA_STK_BASE      ; Initialize data stack pointer (EBP)
-    mov R1, LSTK               ; Initialize local stack pointer (LSP)
-    mov [LSP], R1
+    mov EAX, LSTK               ; Initialize local stack pointer (LSP)
+    mov [LSP], EAX
     mov dword [BASE], 10
     mov dword [STATE], 0
     ; just run the test suite for now
@@ -671,4 +664,5 @@ LSP:   dd LSTK
 
 FORTH_SRC: db ": test1 235 ;", 10
            db ": test2 334 ;", 10
+           db ": cell 4 ;", 10
            db 0

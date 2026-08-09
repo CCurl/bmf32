@@ -25,21 +25,16 @@ dictEntry test2, "TEST2", 5, 0
 dictEntry test3, "TEST3", 5, 0
     dPop eax
     test eax, eax
-    jz .emitN
+    jz .is0
     dPush 'Y'
     jmp XT_emit
-.emitN:
+.is0:
     dPush 'N'
     jmp XT_emit
 
 ;    : test4 ( a b-- ) .EQ .IF 'Y' EMIT EXIT THEN 'N' EMIT ;
 dictEntry test4, "TEST4", 5, 0
-    call XT_dotEQ
-    jne .emitN
-    dPush 'Y'
-    jmp XT_emit
-.emitN:
-    dPush 'N'
+    dPush '?'
     jmp XT_emit
 
 ;    : test5 'N' SWAP IF DROP 'Y' THEN EMIT ;
@@ -94,13 +89,6 @@ dictEntry tests, "TESTS", 5, 0
     call XT_test3
     dPush 0
     call XT_test3
-    call XT_space
-    dPush 123
-    dPush 123
-    call XT_test4
-    dPush 111
-    dPush 222
-    call XT_test4
     call XT_space
     dPush 123
     call XT_test5

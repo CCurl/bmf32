@@ -250,7 +250,7 @@ iToA:   mov     ecx, i2aBuf+63  ; output string start
         jnc     .L
         inc     BYTE [esp]
         neg     eax
-.L:     mov     edx, 0
+.L:     cdq
         div     ebx
         add     dl, '0'
         cmp     dl, '9'

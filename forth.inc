@@ -253,11 +253,11 @@ dictEntry com, "COM", 3, 0
 ; NUMBER? primitive - Check if string is a number
 ; ( str -- (num 1) | 0 )
 dictEntry numq, "NUMBER?", 7, 0
-    dPop esi
+    dPop ESI
     call numq               ; Check if string in ESI is a number
-    test EAX, EAX             ; Check if numq returned 0 (not a number)
+    test EAX, EAX           ; Check if numq returned 0 (not a number)
     jz .no
-    dPush R2                ; Push the parsed number
+    dPush ECX               ; Push the parsed number
 .no:                        ; If not a number, push 0 as the flag
     dPush EAX
     ret
@@ -606,13 +606,13 @@ dictEntry outer, "OUTER", 5, 0
     call XT_drop            ; Drop the address of the word buffer - we know it
     test R1, R1             ; If length is 0, we're done
     jz .done
-    ; TODO: Check if word is a number
-    mov ESI, WORD_START     ; Push address of parsed word
-    call numq               ; Check if it's a number
-    test EAX, EAX           ; Check if numq returned 0 (not a number)
+    dPush WORD_START        ; Push the address of the parsed word
+    call XT_numq            ; Check if it's a number
+    dPop R1
+    test R1, R1             ; 0 means not a number
     jz .not_number
-    dPush R2                ; Push the parsed number
-    dbgPC '-'               ; Print the number
+    ; TODO: if STATE = 1, compile the number into the current word
+    dbgPC '-'               ; For now, print the number
     call XT_pDot
     dbgPC '-'
     call XT_space           ; Print a space

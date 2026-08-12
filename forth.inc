@@ -117,12 +117,12 @@ dictEntry dup, "DUP", 3, 0
 ; DROP primitive - Remove top of stack
 ; ( a b -- a )
 dictEntry drop, "DROP", 4, 0
-    cmp ebp, DATA_STK_BASE
+    cmp ebp, DATA_STK_TOP
     jge .underflow         ; Data stack underflow?
     dDrop
     ret
 .underflow:
-    mov ebp, DATA_STK_BASE
+    mov ebp, DATA_STK_TOP
     ret
 
 ; KEY? primitive - Check if keyboard buffer has data
@@ -537,10 +537,10 @@ dictEntry zType, "ZTYPE", 5, 0
 ; ( n -- addr len )
 dictEntry iToA, "I>A", 3, 0
     dPop EAX
-    mov R1, [BASE]
+    mov EBX, [BASE]
     call iToA
-    dPush R2
-    dPush R3
+    dPush ECX
+    dPush EDX
     ret
 
 ; ============================================================================
@@ -603,9 +603,21 @@ dictEntry outer, "OUTER", 5, 0
 .loop:
     call XT_word            ; Parse next word into buffer at WORD_START
     dPop R1                 ; Get length of parsed word
+    call XT_drop            ; Drop the address of the word buffer - we know it
     test R1, R1             ; If length is 0, we're done
     jz .done
     ; TODO: Check if word is a number
+    mov ESI, WORD_START     ; Push address of parsed word
+    call numq               ; Check if it's a number
+    test EAX, EAX           ; Check if numq returned 0 (not a number)
+    jz .not_number
+    dPush R2                ; Push the parsed number
+    dbgPC '-'               ; Print the number
+    call XT_pDot
+    dbgPC '-'
+    call XT_space           ; Print a space
+    jmp .loop
+.not_number:
     ; TODO: Check if word is in dictionary
     ; TODO: If not found, print error message
     ; TODO: Execute the word if found
@@ -624,7 +636,7 @@ dictEntry outer, "OUTER", 5, 0
 ; ============================================================================
 ;   : COLD ... ;
 dictEntry cold, "COLD", 4, 0
-    mov ebp, DATA_STK_BASE      ; Initialize data stack pointer (EBP)
+    mov ebp, DATA_STK_TOP      ; Initialize data stack pointer (EBP)
     mov EAX, LSTK               ; Initialize local stack pointer (LSP)
     mov [LSP], EAX
     mov dword [BASE], 10

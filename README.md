@@ -56,23 +56,24 @@ make run      # Build and run in QEMU window
 - FASM 1.73.30+ (assembler)
 - GNU ld (linker, elf_i386 format)
 
-## Memory Layout (32 MB)
+## Memory Layout (16 MB)
 
 ```
-0x01FFFFFF  ┌─────────────────────────────┐
-            │ User Dictionary (grows UP)  │ ~15 MB free
+0x01000000  ┌─────────────────────────────┐
+            │ Free                        │ 15 MB free
 0x00100000  ├─────────────────────────────┤
-            │ ROM / System                │ ~1280 KB
-0x000BFFFF  ├─────────────────────────────┤
-            │ VGA text (HW)               │ 4 KB
+            │ ROM / System                │
+0x000C0000  ├─────────────────────────────┤
+            │ VGA text (HW, 80x25x2)      │   4 KB
 0x000B8000  ├─────────────────────────────┤
             │ Graphics (HW)               │
 0x000A0000  ├─────────────────────────────┤
-            │ Current word    0x0009F000  │
-            │ Data Stack      0x0009E000  │
-            │ TIB             0x0009A000  │ ~657 KB
-            │ Return Stack    (16KB)      │
-            │ Kernel          0x00010000  │ 
+            │ User Dict Start 0x00018900  │ 541 KB
+            │ Current word    0x00018500  │   1 KB
+            │ TIB             0x00018400  │   1 KB
+            │ Data Stack      0x00018400  │   1 KB (grows down)
+            │ Return Stack    0x00018000  │  16 KB (grown down)
+            │ Kernel          0x00010000  │  16 KB
 0x00010000  ├─────────────────────────────┤
             │ BIOS / System               │
 0x00000000  └─────────────────────────────┘
@@ -81,7 +82,7 @@ make run      # Build and run in QEMU window
 ## Kernel Components
 
 ### Bootloader (_start)
-- Loads at 0x00010000 (32 KB pocket below 1 MB)
+- Loads at 0x00010000
 - Stack setup (ESP → stack_top, 16 KB kernel stack)
 - Calls kernel_main
 
@@ -96,7 +97,7 @@ make run      # Build and run in QEMU window
 - `kernel_clear()` - Clear screen, reset cursor
 - `vga_putchar(AL)` - Write char at cursor, advance, wrap, scroll
 - `vga_write(ESI)` - Write null-terminated string
-- Text mode: 80×25 @ 0xB8000
+- Text mode: 80×25x2 @ 0xB8000
 
 ### Serial Driver (COM1)
 - `ser_write(ESI)` - Write null-terminated string to serial port
@@ -140,7 +141,7 @@ make run      # Build and run in QEMU window
 [Offset n+2:m] Inline code (XT, variable size)
 ```
 
-- **Data stack**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
+- **Data stack**: EBP (data stack pointer, grows downward from DATA_STK_TOP)
 - **Stack macros**:
   - `dPush val` - Push a value onto the data stack
   - `dPop reg` - Pop from data stack into a register
@@ -204,7 +205,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 - EAX, EBX, ECX, EDX: scratch
 - ESI, EDI: String pointers / scratch
 - ESP: Return stack (Forth and x86 stack calls/returns)
-- EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_BASE`)
+- EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_TOP`)
 
 **Calling convention:**
 - No STDCALL (manual stack management)

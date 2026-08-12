@@ -26,11 +26,15 @@ SERIAL_PORT = 0x3F8
 ; MEMORY LAYOUT (32 MB total)
 ; ============================================================================
 
-DICT_START     = 0x00100000  ; Dictionary (grows UP)
+FREE_END       = 0x01FFFFFF  ; Free memory ends here (grows UP)
+FREE_START     = 0x00100000  ; Free memory starts here (grows UP)
 VGA_ADDRESS    = 0x000B8000  ; VGA text buffer (80x25 × 2 bytes = 4 KB)
-WORD_START     = 0x0009F000  ; Word buffer (256 bytes)
-DATA_STK_BASE  = 0x0009E000  ; Data stack (grows DOWN)
-TIB_START      = 0x0009A000  ; Text Input Buffer (16 KB)
+VGA_GRAPHICS   = 0x000A0000  ; VGA graphics memory (96 KB)
+DICT_START     = 0x00018900  ; Dictionary (grows UP)
+WORD_START     = 0x00018500  ; Word buffer (1 KB)
+TIB_START      = 0x00018400  ; Text Input Buffer (1 KB)
+DATA_STK_TOP   = 0x00018400  ; Data stack (1 KB, grows DOWN)
+RET_STK_TOP    = 0x00018000  ; Return stack (16 KB, grows DOWN)
 KERNEL_START   = 0x00010000  ; Kernel entry point
 
 ; Note: ESP (kernel stack) remains in kernel .bss section (16 KB)
@@ -45,16 +49,9 @@ section '.multiboot' align 4
     dd MULTIBOOT_CHECKSUM
 
 ; ============================================================================
-; SECTION: MEMORY LAYOUT
+; Data section - global variables
 ; ============================================================================
 
-; Kernel stack (16 KB) - grows downward
-section '.bss' align 16
-stack_bottom:
-    rb 16384
-stack_top:
-
-; Data section - global variables
 section '.data'
 cursor_x: dd 0
 cursor_y: dd 0
@@ -89,7 +86,7 @@ public _start
 
 _start:
     ; Setup the stack pointer
-    mov esp, stack_top
+    mov esp, RET_STK_TOP
     
     ; Save multiboot parameters to memory
     ; EAX = magic number (0x2BADB002)

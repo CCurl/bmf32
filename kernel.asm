@@ -651,7 +651,6 @@ kernel_main:
     mov esi, msg_started
     call vga_ser_write       ; Print "Kernel started!" to VGA and serial
 
-    call init_forth          ; Initialize FORTH dictionary and state
     call run_forth           ; Run the Forth system
 
     ; Halt the CPU

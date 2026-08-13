@@ -347,13 +347,12 @@ dictEntry words, "WORDS", 5, 0
 .words_loop:
     test R1, R1             ; End of dictionary?
     jz .words_done
-    push R1                 ; Print the word name
+    push R1                 ; Save current word address
     mov esi, R1             ; Set ESI: word name address
-    add esi, 10
+    add esi, 10             ; Name in entry is at offset 10
     call vga_ser_write
-    mov al, 32              ; Space
-    call vga_ser_emit
-    pop R1
+    call XT_space           ; Print a space after the word
+    pop R1                  ; Restore current word address
     mov R1, [R1]            ; Next word in dictionary
     jmp .words_loop
 .words_done:
@@ -424,12 +423,16 @@ dictEntry cStore, "C!", 2, 0
     mov [EBX], CL
     ret
 
+; 3 free variables
+xVal:  dd 0
+yVal:  dd 0
+zVal:  dd 0
+
 ; X@ primitive - Fetch X
 ; ( -- value )
 dictEntry xFetch, "X@", 2, 0
     dPush [xVal]
     ret
-xVal:  dd 0
 
 ; X! primitive - Store X
 ; ( value -- )
@@ -442,7 +445,6 @@ dictEntry xStore, "X!", 2, 0
 dictEntry yFetch, "Y@", 2, 0        
     dPush [yVal]
     ret
-yVal:  dd 0
 
 ; Y! primitive - Store Y
 ; ( value -- )
@@ -455,7 +457,6 @@ dictEntry yStore, "Y!", 2, 0
 dictEntry zFetch, "Z@", 2, 0
     dPush [zVal]
     ret
-zVal:  dd 0
 
 ; Z! primitive - Store Z
 ; ( value -- )
@@ -466,9 +467,9 @@ dictEntry zStore, "Z!", 2, 0
 ; >L primitive - Move to local stack
 ; ( value -- )
 dictEntry toLStk, ">L", 2, 0
-    dPop R2
     add DWORD [LSP], CELL_SZ
     mov R1, [LSP]
+    dPop R2
     mov [R1], R2
     ret
 
@@ -493,8 +494,7 @@ dictEntry fromLStk, "L>", 2, 0
     ret
 
 dictEntry lspAddr, "(LSP)", 5, 0
-    mov R1, LSP
-    dPush R1
+    dPush LSP
     ret
 
 dictEntry zType, "ZTYPE", 5, 0
@@ -523,8 +523,7 @@ dictEntry wordAddr, "(WORD)", 6, 0
     ret
 
 dictEntry toIn, ">IN", 3, 0
-    mov R1, TO_IN
-    dPush R1
+    dPush TO_IN
     ret
 
 dictEntry base, "BASE", 4, 0
@@ -615,31 +614,28 @@ dictEntry outer, "OUTER", 5, 0
 ; ============================================================================
 ; COLD Start
 ; ============================================================================
-;   : COLD ... ;
+include 'tests.inc'            ; Include the test suite for now
+
 dictEntry cold, "COLD", 4, 0
+    mov dword [LAST], last_de
+    mov dword [HERE], DICT_START
     mov ebp, DATA_STK_TOP      ; Initialize data stack pointer (EBP)
     mov edx, LSTK              ; Initialize local stack pointer (LSP)
     mov [LSP], edx
     mov dword [BASE], 10
     mov dword [STATE], 0
-    xor TOS, TOS
-    call XT_tests            ; run the test suite for now
+    xor TOS, TOS               ; Clear TOS
+    call XT_tests              ; run the test suite for now
     dPush FORTH_SRC
     call XT_outer
     ret
 
-include 'tests.inc'
 ; ============================================================================
-; Init/ Run
+; Init / Run
 ; ============================================================================
-init_forth:
+run_forth:
     ; Set LAST to the last defined word
     mov [Start_ESP], esp        ; Save the start of the return stack for bounds checking
-    mov dword [LAST], last_de
-    mov dword [HERE], DICT_START
-    ret
-
-run_forth:
     jmp XT_cold
 
 ; ============================================================================
@@ -652,8 +648,8 @@ LAST:  dd last_de               ; Most recent word (0 initially, will point to l
 BASE:  dd 10                    ; Number base (default 10)
 STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
 TO_IN: dd 0                     ; >IN - address of current input stream
-LSTK:  dd 32 dup(0)
-LSP:   dd LSTK
+LSTK:  dd 32 dup(0)             ; Local stack (32 cells)
+LSP:   dd LSTK                  ; Local stack pointer (grows UP)
 
 FORTH_SRC: db ": test1 123 ;", 10
            db ": test2 -00045 ;", 10

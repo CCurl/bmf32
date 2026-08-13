@@ -87,6 +87,8 @@ dictEntry testDict, "TEST-DICT", 9, 0
     call td_sub
     dPush lookup_str_4
     call td_sub
+    call XT_words
+    call XT_cr
     ret
 
 dictEntry tests, "TESTS", 5, 0

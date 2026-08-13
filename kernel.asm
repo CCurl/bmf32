@@ -6,6 +6,14 @@
 format ELF
 use32
 
+; Macro to print a char to the serial port (for debugging)
+macro dbgPC ch {
+    push eax
+    mov al, ch
+    call ser_emit
+    pop eax
+}
+
 ; ============================================================================
 ; SECTION: CONSTANTS & CONFIGURATION
 ; ============================================================================

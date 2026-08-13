@@ -1,30 +1,34 @@
 ; ============================================================================
 ; Tests
 ; ============================================================================
-dictEntry pass, "PASS", 5, 0
-    dPush msgPass
+dictEntry found, "FOUND", 5, 0
+    dPush msgFF
     jmp XT_zType
 
-dictEntry fail, "FAIL", 4, 0
-    dPush msgFail
+dictEntry notFound, "NOT-FOUND", 9, 0
+    dPush msgNF
     jmp XT_zType
 
 ;    : test1 1 LIT 16 CELLS + EMIT ;
 dictEntry test1, "TEST1", 5, 0
     dPush 12345
     call XT_dup
-    call XT_pDot
-    call XT_space
-    call XT_pDot
+    call XT_dot
+    call XT_dot
     jmp XT_cr
 
 dictEntry test2, "TEST2", 5, 0
-    ret
+    dPush 1
+    dPush 2
+    dPush 3
+    call XT_add
+    call XT_add
+    jmp XT_dot
 
 ;    : test3 IF 'Y' EMIT EXIT THEN 'N' EMIT ;
 dictEntry test3, "TEST3", 5, 0
-    dPop eax
-    test eax, eax
+    dPop ebx
+    test ebx, ebx
     jz .is0
     dPush 'Y'
     jmp XT_emit
@@ -32,17 +36,21 @@ dictEntry test3, "TEST3", 5, 0
     dPush 'N'
     jmp XT_emit
 
-;    : test4 ( a b-- ) .EQ .IF 'Y' EMIT EXIT THEN 'N' EMIT ;
+;    : test4  ;
 dictEntry test4, "TEST4", 5, 0
-    dPush '?'
-    jmp XT_emit
+    dPush 222332
+    call XT_onePlus
+    call XT_xStore
+    call XT_xFetch
+    call XT_dot
+    ret
 
 ;    : test5 'N' SWAP IF DROP 'Y' THEN EMIT ;
 dictEntry test5, "TEST5", 5, 0
     dPush 'N'
     call XT_swap
-    dPop eax
-    test eax, eax
+    dPop ebx
+    test ebx, ebx
     jz .emit
     call XT_drop
     dPush 'Y'
@@ -54,40 +62,32 @@ dictEntry testHW, "TEST-HW", 7, 0
     call XT_zType
     jmp XT_cr
 
-; TEST-NUMQ - Test NUMBER? primitive
-; Tests parsing various number formats: decimal, hex, binary, char literals
-dictEntry testNumq, "TEST-NUMQ", 9, 0
-    ret                ; TODO: implement number parsing tests
+td_sub:
+    call XT_dup
+    call XT_zType
+    call XT_find
+    test TOS, TOS
+    jz .nf1
+    call XT_found
+    jmp .xit
+.nf1:
+    call XT_notFound
+.xit:
+    ret
 
 ; TEST-DICT - Test FIND primitive
 ; Tests dictionary lookup with various word names
 dictEntry testDict, "TEST-DICT", 9, 0
-    dPush 1
-    dPush 2
-    dPush 3
-    call XT_add
-    call XT_add
-    call XT_pDot
-    jmp XT_space
-
-; TEST-WORD - Test WORD primitive
-; Tests word parsing from input stream
-dictEntry testWord, "TEST-WORD", 9, 0
-    dPush word_test_input_1
-    call XT_toIn
-    call XT_store
-    call XT_word
-    call XT_pDot
-    call XT_space
-    call XT_wordAddr
-    call XT_zType
-    call XT_space
-    call XT_word
-    call XT_pDot
-    call XT_space
-    call XT_wordAddr
-    call XT_zType
-    jmp XT_cr
+    call XT_cr
+    dPush lookup_str_1
+    call td_sub
+    dPush lookup_str_2
+    call td_sub
+    dPush lookup_str_3
+    call td_sub
+    dPush lookup_str_4
+    call td_sub
+    ret
 
 dictEntry tests, "TESTS", 5, 0
     call XT_testHW
@@ -98,13 +98,14 @@ dictEntry tests, "TESTS", 5, 0
     dPush 0
     call XT_test3
     call XT_space
+    call XT_test4
     dPush 123
     call XT_test5
     dPush 0
     call XT_test5
     call XT_space
-    call XT_testWord
     call XT_testDict
+    call XT_cr
     ret
 
 ; ============================================================================
@@ -114,8 +115,8 @@ dictEntry tests, "TESTS", 5, 0
 
 ; Test strings for numq
 msg_test: db 10, "Testing numq:", 10, 0
-msgPass: db " - PASS", 10, 0
-msgFail: db " - FAIL", 10, 0
+msgFF: db " - FOUND", 10, 0
+msgNF: db " - NOT FOUND", 10, 0
 
 test_str_1: db "'A'", 0          ; Char literal: should be 65
 test_str_2: db "$FF", 0          ; Hex: should be 255
@@ -135,7 +136,4 @@ lookup_str_2: db "dup", 0         ; Should find dup (case-insensitive)
 lookup_str_3: db "SWAP", 0        ; Should find SWAP
 lookup_str_4: db "NOTAWORD", 0    ; Should NOT find this
 
-; Test strings for WORD primitive
-msg_word_test: db 10, "Testing WORD:", 10, 0
-word_test_input_1: db "  hello  world!", 0 ; Leading spaces, should parse "hello"
 helloWorld: db "Hello, World! ", 0

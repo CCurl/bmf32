@@ -6,15 +6,14 @@
 ; Note: EBP is the data stack pointer (grows downward)
 ; Note: ESP is the return stack pointer (grows downward)
 
-CELL_SZ equ "4"
-TOS equ [ebp]          ; Top of stack
-NOS equ [ebp+CELL_SZ]  ; Next on stack
-; TOS equ EAX
+TOS equ EAX
+NOS equ [ebp]  ; Next on stack
 R1 equ EBX
 R2 equ ECX
 R3 equ EDX
 R4 equ ESI
 R5 equ EDI
+CELL_SZ equ 4
 
 ; ============================================================================
 ; SECTION: MACROS
@@ -29,7 +28,7 @@ macro getTOS reg {
 }
 
 ; Write to top of stack (non-destructive to SP)
-; Usage: setTOS EAX     (or any 32-bit value)
+; Usage: setTOS ECX     (or any 32-bit value)
 ; Note: 'MOV DWORD [ebp], EAX' is machine code '$89 $45 $00'
 ; Note: 'MOV DWORD [ebp], EBX' is machine code '$89 $5D $00'
 ; Note: 'MOV DWORD [ebp], $12345678' is machine code '$C7 $45 $00 $78 $56 $34 $12'
@@ -37,11 +36,27 @@ macro setTOS regVal {
     mov DWORD TOS, regVal
 }
 
+; Read next on stack (2nd element) into a register (non-destructive)
+; Usage: getNOS EAX     (or any 32-bit register)
+; Note: 'MOV DWORD EAX, [EBP+4]' is machine code '$8B $45 $04'
+macro getNOS reg {
+    mov reg, NOS
+}
+
+; Write to next on stack (2nd element, non-destructive to SP)
+; Usage: setNOS EAX     (or any 32-bit register)
+; Note: 'MOV DWORD [EBP+4], EAX' is machine code '$89 $45 $04'
+; Note: 'MOV DWORD [EBP+4], $12345678' is machine code '$C7 $45 $04 $78 $56 $34 $12'
+macro setNOS regVal {
+    mov DWORD NOS, regVal
+}
+
 ; Push a value onto the data stack (grows downward, EBP = data stack pointer)
 ; Usage: dPush EAX    (or any 32-bit value)
 ; Note: 'SUB EBP, 4' is machine code '$83 $ED $04'
 macro dPush regVal {
     lea ebp, [ebp-CELL_SZ]
+    mov NOS, TOS
     setTOS regVal
 }
 
@@ -49,6 +64,7 @@ macro dPush regVal {
 ; Usage: dDrop (no operands)
 ; Note: 'ADD EBP, 4' is machine code '$83 $C5 $04'
 macro dDrop {
+    mov TOS, NOS
     lea ebp, [ebp+CELL_SZ]
 }
 
@@ -57,29 +73,6 @@ macro dDrop {
 macro dPop reg {
     getTOS reg
     dDrop
-}
-
-; Read next on stack (2nd element) into a register (non-destructive)
-; Usage: getNOS EAX     (or any 32-bit register)
-; Note: 'MOV DWORD EAX, [EBP+4]' is machine code '$8B $45 $04'
-macro getNOS reg {
-    mov reg, [ebp+CELL_SZ]
-}
-
-; Write to next on stack (2nd element, non-destructive to SP)
-; Usage: setNOS EAX     (or any 32-bit register)
-; Note: 'MOV DWORD [EBP+4], EAX' is machine code '$89 $45 $04'
-; Note: 'MOV DWORD [EBP+4], $12345678' is machine code '$C7 $45 $04 $78 $56 $34 $12'
-macro setNOS regVal {
-    mov DWORD [ebp+CELL_SZ], regVal
-}
-
-; Macro to print a char to the serial port (for debugging)
-macro dbgPC ch {
-    push eax
-    mov al, ch
-    call ser_emit
-    pop eax
 }
 
 ; Macro to create a dictionary entry
@@ -110,8 +103,7 @@ XT_##nameId:
 ; DUP primitive - Duplicate top of stack
 ; ( a -- a a )
 dictEntry dup, "DUP", 3, 0
-    getTOS R1
-    dPush R1
+    dPush TOS
     ret
 
 ; DROP primitive - Remove top of stack
@@ -255,11 +247,11 @@ dictEntry com, "COM", 3, 0
 dictEntry numq, "NUMBER?", 7, 0
     dPop ESI
     call numq               ; Check if string in ESI is a number
-    test EAX, EAX           ; Check if numq returned 0 (not a number)
+    test EBX, EBX           ; Check if numq returned 0 (not a number)
     jz .no
     dPush ECX               ; Push the parsed number
 .no:                        ; If not a number, push 0 as the flag
-    dPush EAX
+    dPush EBX
     ret
 
 ; WORD primitive - parse the next word from >IN
@@ -312,7 +304,7 @@ dictEntry streq, "S-EQ", 4, 0
     setTOS 0                 ; Default to 0 (not equal)
     call streq
     jnz .exit
-    inc byte TOS
+    inc TOS
 .exit:
     ret
 
@@ -326,8 +318,9 @@ dictEntry strcpy, "S-CPY", 5, 0
 ; EMIT primitive - Output character on TOS
 ; ( ch -- )
 dictEntry emit, "EMIT", 4, 0
-    dPop EAX
-    jmp vga_ser_emit
+    call vga_ser_emit
+    dDrop
+    ret
 
 ; COMMA primitive - store TOS value at HERE, increment HERE by 4
 ; ( N-- )
@@ -369,127 +362,105 @@ dictEntry words, "WORDS", 5, 0
 ; Dictionary lookup - find a word by name
 ; (str -- addr | 0)
 dictEntry find, "FIND", 4, 0
-    call XT_dup             ; Get length of search string in R2
-    call XT_strlen
-    dPop R2                 ; R2 = length of search string
     getTOS esi              ; Get pointer to name string from TOS
-    push R2                 ; Save length on stack
-    mov EAX, [LAST]          ; Start at most recently defined word
+    mov TOS, [LAST]         ; Start at most recently defined word
     
 .search_loop:
-    test EAX, EAX             ; End of dictionary?
+    test TOS, TOS           ; End of dictionary?
     jz .find_exit
     
-    ; Check length first: compare CL with length byte at [EAX + 9]
-    mov cl, [esp]           ; Restore length into CL
-    mov bl, [EAX + 9]        ; Length byte
-    cmp bl, cl              ; Compare lengths
-    jne .name_no_match      ; Length mismatch, try next entry
-    
-    ; Length matches, now compare name: [EAX + 10] is the name field
-    mov edi, EAX
-    add edi, 10             ; Point to name in entry
+    mov edi, TOS            ; Set EDI to address of the entry's name
+    add edi, 10             ; Name in entry is at offset 10
 
     call streq              ; Compare search string (ESI) with entry name (EDI)
     jz .find_exit           ; If equal (ZF=1), found the word
 
 .name_no_match:
-    mov EAX, [EAX]          ; Follow link to previous entry
+    mov TOS, [TOS]          ; Follow link to previous entry
     jmp .search_loop
     
-; EAX already contains either the address or 0 (not found)
 .find_exit:           
-    setTOS EAX
-    pop R2                 ; Clean up stack
+    ; TOS already contains either the address or 0 (not found)
     ret
 
 ; 1+ primitive - Increment TOS by 1
 ; (n -- n+1)
 dictEntry onePlus, "1+", 2, 0
-    inc DWORD [ebp]
+    inc EAX
     ret
 
 ; 1- primitive - Decrement TOS by 1
 ; (n -- n-1)
 dictEntry oneMinus, "1-", 2, 0
-    dec DWORD [ebp]
+    dec EAX
     ret
 
 ; FETCH primitive - Fetch a cell from memory
 ; ( addr -- value )
 dictEntry fetch, "@", 1, 0
-    getTOS EAX
-    mov R1, [EAX]
-    setTOS R1
+    mov TOS, [TOS]
     ret
 
 ; STORE primitive - Store a cell into memory
 ; ( value addr -- )
 dictEntry store, "!", 1, 0
     dPop R1                ; Address to store into
-    dPop EAX                ; Value to store
-    mov [R1], EAX
+    dPop R2                ; Value to store
+    mov [R1], R2
     ret
 
 ; CFETCH primitive - Fetch a cell from memory
 ; ( addr -- value )
 dictEntry cFetch, "C@", 2, 0
-    getTOS EAX
-    movzx R1, byte [EAX]
+    movzx R1, byte [TOS]
     setTOS R1
     ret
 
 ; CSTORE primitive - Store a cell into memory
 ; ( value addr -- )
 dictEntry cStore, "C!", 2, 0
-    dPop R1                ; Address to store into
-    dPop EAX                ; Value to store
-    mov [R1], al
+    dPop EBX               ; Address to store into
+    dPop ECX               ; Value to store
+    mov [EBX], CL
     ret
 
 ; X@ primitive - Fetch X
 ; ( -- value )
 dictEntry xFetch, "X@", 2, 0
-    mov R1, [xVal]
-    dPush R1
+    dPush [xVal]
     ret
 xVal:  dd 0
 
 ; X! primitive - Store X
 ; ( value -- )
 dictEntry xStore, "X!", 2, 0
-    dPop R1
-    mov [xVal], R1
+    dPop [xVal]
     ret
 
 ; Y@ primitive - Fetch Y
 ; ( -- value )
 dictEntry yFetch, "Y@", 2, 0        
-    mov R1, [yVal]
-    dPush R1
+    dPush [yVal]
     ret
 yVal:  dd 0
 
 ; Y! primitive - Store Y
 ; ( value -- )
 dictEntry yStore, "Y!", 2, 0
-    dPop R1
-    mov [yVal], R1
+    dPop [yVal]
     ret
 
 ; Z@ primitive - Fetch Z
 ; ( -- value )
 dictEntry zFetch, "Z@", 2, 0
-    mov R1, [zVal]
-    dPush R1
+    dPush [zVal]
     ret
 zVal:  dd 0
 
 ; Z! primitive - Store Z
 ; ( value -- )
 dictEntry zStore, "Z!", 2, 0
-    dPop R1
-    mov [zVal], R1
+    dPop [zVal]
     ret
 
 ; >L primitive - Move to local stack
@@ -527,20 +498,17 @@ dictEntry lspAddr, "(LSP)", 5, 0
     ret
 
 dictEntry zType, "ZTYPE", 5, 0
-    push esi
     dPop esi
     call vga_ser_write
-    pop esi
     ret
 
 ; I>A primitive - Convert integer to ASCII string
 ; ( n -- addr len )
 dictEntry iToA, "I>A", 3, 0
-    dPop EAX
     mov EBX, [BASE]
     call iToA
+    setTOS ESI
     dPush ECX
-    dPush EDX
     ret
 
 ; ============================================================================
@@ -588,8 +556,12 @@ dictEntry space, "SPACE", 5, 0
 
 dictEntry pDot, "(.)", 3, 0
     call XT_iToA
-    call XT_drop
+    call XT_drop            ; Drop the length of the string
     jmp XT_zType
+
+dictEntry dot, ".", 1, 0
+    call XT_pDot
+    jmp XT_space            ; Print a space after the number
 
 ; ============================================================================
 ; The outer interpreter
@@ -598,33 +570,42 @@ dictEntry pDot, "(.)", 3, 0
 dictEntry outer, "OUTER", 5, 0
     mov R1, [TO_IN]         ; Save >IN
     push R1
-    dPop R1                 ; Get input string
-    mov [TO_IN], R1         ; Set >IN
+    dPop R2                 ; Get input string
+    mov [TO_IN], R2         ; Set >IN
 .loop:
     call XT_word            ; Parse next word into buffer at WORD_START
-    dPop R1                 ; Get length of parsed word
+    dPop R1                 ; Get length of the parsed word
     call XT_drop            ; Drop the address of the word buffer - we know it
     test R1, R1             ; If length is 0, we're done
     jz .done
+    ; Check if the word is a number
     dPush WORD_START        ; Push the address of the parsed word
     call XT_numq            ; Check if it's a number
     dPop R1
     test R1, R1             ; 0 means not a number
-    jz .not_number
+    jz .not_num
     ; TODO: if STATE = 1, compile the number into the current word
-    dbgPC '-'               ; For now, print the number
-    call XT_pDot
-    dbgPC '-'
-    call XT_space           ; Print a space
+    call XT_dot
     jmp .loop
-.not_number:
-    ; TODO: Check if word is in dictionary
-    ; TODO: If not found, print error message
+.not_num:
+    ; Check if the word is in dictionary
+    dPush WORD_START        ; Push the address of the parsed word
+    call XT_find            ; Check if it's a number
+    dPop R1
+    test R1, R1             ; 0 means not a word
+    jz .not_word
     ; TODO: Execute the word if found
-    ; TEMP: Output the parsed word
     call XT_wordAddr        ; TEMP
     call XT_zType           ; TEMP
-    call XT_space           ; TEMP
+    jmp .loop
+.not_word:
+    ; TODO: If not found, print error message
+    ; TEMP: Output the word
+    call XT_wordAddr
+    call XT_zType
+    dPush '?'
+    call XT_emit
+    call XT_space
     jmp .loop
 .done:
     pop R1                  ; Restore >IN
@@ -637,12 +618,12 @@ dictEntry outer, "OUTER", 5, 0
 ;   : COLD ... ;
 dictEntry cold, "COLD", 4, 0
     mov ebp, DATA_STK_TOP      ; Initialize data stack pointer (EBP)
-    mov EAX, LSTK               ; Initialize local stack pointer (LSP)
-    mov [LSP], EAX
+    mov edx, LSTK              ; Initialize local stack pointer (LSP)
+    mov [LSP], edx
     mov dword [BASE], 10
     mov dword [STATE], 0
-    ; just run the test suite for now
-    call XT_tests
+    xor TOS, TOS
+    call XT_tests            ; run the test suite for now
     dPush FORTH_SRC
     call XT_outer
     ret
@@ -674,7 +655,7 @@ TO_IN: dd 0                     ; >IN - address of current input stream
 LSTK:  dd 32 dup(0)
 LSP:   dd LSTK
 
-FORTH_SRC: db ": test1 235 ;", 10
-           db ": test2 334 ;", 10
+FORTH_SRC: db ": test1 123 ;", 10
+           db ": test2 -00045 ;", 10
            db ": cell 4 ;", 10
            db 0

@@ -245,10 +245,10 @@ vga_write:
     push esi
     
 .write_loop:
-    lodsb                   ; load byte from [esi] into al, increment esi
-    test al, al             ; check for null terminator
+    mov al, [esi]           ; load byte from [esi] into al, increment esi
+    inc esi
+    test al, al             ; null terminator?
     jz .write_done
-    
     call vga_emit
     jmp .write_loop
     
@@ -665,6 +665,6 @@ kernel_main:
 ; SECTION: TEST DATA & STRINGS
 ; ============================================================================
 
-msg_started: db "Kernel started!", 10, 0
+msg_started: db "BMF32 - version 0.1", 10, 0
 msg_halt: db 10, "Halting.", 10, 0
 hex_buffer: db "0x00000000", 0

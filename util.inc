@@ -157,17 +157,17 @@ numq:
 ; ******************************************************************************
 ; iToA: input:  EAX: the number to print
 ;       input:  EBX: the base to convert to (2, 10, 16)
-;       output: ESI: the start of the string
+;       output: EDI: the start of the string
 ;               ECX: the length of the string
 i2aBuf: db 64 dup(0)
-iToA:   push    eax
-        mov     esi, i2aBuf+63  ; output string start
+iToA:   push    eax             ; save EAX
+        mov     edi, i2aBuf+63  ; output string start
         xor     ecx, ecx        ; output length
         xor     edx, edx        ; isNegative flag
-        mov     BYTE [esi], 0   ; NULL terminate the string
+        mov     BYTE [edi], 0   ; NULL terminate the string
         bt      eax, 31
         jnc     .L0
-        mov edx, 1             ; set isNegative flag
+        mov     edx, 1             ; set isNegative flag
         neg     eax
 .L0:    push    edx
 .loop:  cdq
@@ -176,16 +176,16 @@ iToA:   push    eax
         cmp     dl, '9'
         jle     .L1
         add     dl, 7
-.L1:    dec     esi
-        mov     BYTE [esi], dl
+.L1:    dec     edi
+        mov     BYTE [edi], dl
         inc     ecx
         test    eax, eax
         jnz     .loop
         pop     edx             ; get the negative flag
         test    edx, edx        ; 0 means not negative
         jz      .xit
-        dec     esi
-        mov     BYTE [esi], '-'
+        dec     edi
+        mov     BYTE [edi], '-'
         inc     ecx
 .xit:   pop     eax             ; restore original EAX
         ret

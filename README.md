@@ -94,7 +94,7 @@ make run      # Build and run in QEMU window
   - IRQ1 (keyboard) enabled by default
 
 ### VGA Driver
-- `kernel_clear()` - Clear screen, reset cursor
+- `vga_clear()` - Clear screen, reset cursor
 - `vga_putchar(AL)` - Write char at cursor, advance, wrap, scroll
 - `vga_write(ESI)` - Write null-terminated string
 - Text mode: 80×25x2 @ 0xB8000

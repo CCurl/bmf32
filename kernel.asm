@@ -118,7 +118,7 @@ _start:
 ; Clear VGA screen and reset cursor position
 ; Entry: none
 ; Exit: VGA cleared, cursor at (0,0)
-kernel_clear:
+vga_clear:
     push ebx
     push ecx
     push edx
@@ -647,7 +647,7 @@ kernel_main:
     ; Initialize other stuff
     call init_serial         ; Serial port
 
-    call kernel_clear        ; Clear VGA screen
+    call vga_clear        ; Clear VGA screen
     mov esi, msg_started
     call vga_ser_write       ; Print "Kernel started!" to VGA and serial
 
@@ -662,9 +662,8 @@ kernel_main:
     jmp .kernel_halt
 
 ; ============================================================================
-; SECTION: TEST DATA & STRINGS
+; SECTION: DATA & STRINGS
 ; ============================================================================
 
-msg_started: db "BMF32 - version 0.1", 10, 0
+msg_started: db "BMF32 - version 0.0.1", 10, 0
 msg_halt: db 10, "Halting.", 10, 0
-hex_buffer: db "0x00000000", 0

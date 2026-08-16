@@ -20,31 +20,6 @@ R4  equ EDI
 ; SECTION: MACROS
 ; ============================================================================
 
-; Macro to create a dictionary entry
-last_de equ 0
-macro dictEntry nameId, name, len, flags {
-dict_##nameId:
-    dd last_de
-    dd xt##nameId
-    db flags, len, name, 0
-    last_de equ dict_##nameId
-xt##nameId:
-}
-
-; ============================================================================
-; Forth Primitives - Start
-; ============================================================================
-
-; Name     Offset     Length
-; ----------------------------
-; Link     0 -> 3     4
-; XT       4 -> 7     4
-; Flags    8          1
-; Len      9          1
-; Name     10 -> n    variable
-; NULL     n+1        1
-; Code/XT  n+2        variable
-
 macro getTOS regVal {
     mov regVal, TOS
 }
@@ -79,53 +54,64 @@ macro NEXT {
     jmp inner
 }
 
+; Create a dictionary entry (link, xt, flags, len, name, null, code/words)
+last_de equ 0
+macro dictEntry nameId, name, len, flags {
+dict_##nameId:
+    dd last_de
+    dd xt##nameId
+    db flags, len, name, 0
+    last_de equ dict_##nameId
+xt##nameId:
+}
+
 ; ============================================================================
-; Forth startup
+; Forth initialize and run
 ; ============================================================================
 run_forth:
     ; Set LAST to the last defined word
-    mov [Start_ESP], esp        ; Save the start of the return stack for bounds checking
+    mov [Start_ESP], esp           ; Save the start of the return stack for bounds checking
+    mov ebp, DATA_STK_TOP          ; Save the start of the return stack for bounds checking
+    mov DWORD [HERE], DICT_START   ; Set HERE to the start of the dictionary
+    mov DWORD [BASE], 10           ; Set BASE to 10
+    mov DWORD [STATE], 0           ; Set STATE to interpreting mode
+    mov DWORD [LSP], LSTK          ; Set LSP to the start of the return stack
     mov IIP, TheROM
     jmp inner
-    ret
 
 ; ============================================================================
 ; Forth inner interpreter
 ; ============================================================================
+doWord:
+    push IIP            ; Save the current IIP on the return stack
+    mov IIP, R1         ; "Call" that word
 inner:
-    mov ebx, [IIP]      ; Get the next instruction
+    mov R1, [IIP]       ; Get the next instruction
     add IIP, 4          ; Increment the instruction pointer
-    cmp ebx, primsEnd   ; Is it a primitive?
-    jg .word            ; if so, call it
-    ;dbgPC 'p'
-    jmp ebx             ; else, jump to the subroutine
-.word:
-    ;dbgPC 'w'
-    push IIP            ; Save the current place on the return stack
-    mov IIP, ebx        ; "call" the word
-    jmp inner
-.xit:
-    ret
+    cmp R1, primsEnd    ; Is it a primitive?
+    jg doWord           ; If not, must be a word
+    jmp R1              ; Jump to the subroutine
 
 ; ============================================================================
-; Forth primitives
+; Forth Primitives - Start
 ; ============================================================================
-
 fDup:
-    sub ebp, CELL_SZ
-    mov NOS, TOS
+    lea ebp, [ebp - CELL_SZ]
+    mov DWORD [ebp], EAX
     ret
 
 fDrop:
-    mov TOS, NOS
-    add ebp, CELL_SZ
+    mov EAX, DWORD [ebp]
+    lea ebp, [ebp + CELL_SZ]
     ret
 
 ; SPACE primitive - output a space character
 ; ( -- )
 dictEntry Space, "SPACE", 5, 0
-    dPush 32
-    call xtEmit
+    push EAX
+    mov EAX, 32
+    call vga_ser_emit
+    pop EAX
     NEXT
 
 ; EXIT primitive - Push literal onto the stack
@@ -133,17 +119,14 @@ dictEntry Space, "SPACE", 5, 0
 dictEntry Ret, "EXIT", 4, 0
     cmp esp, [Start_ESP]  ; Check if we are at the bottom of the return stack
     jge .exit             ; If at the bottom, exit
-    ;dbgPC 'I'
-    pop IIP               ; Restore the return address from the return stack
+    pop IIP               ; Restore the IIP
     NEXT
 .exit:
-    ;dbgPC 'X'
     ret
 
 ; LIT primitive - Push literal onto the stack
 ; ( -- n )
 dictEntry Lit, "LIT", 3, 0
-    ;dbgPC 'N'
     dPush [IIP]         ; Push the literal value onto the stack
     add IIP, 4          ; Increment the instruction pointer
     NEXT
@@ -174,7 +157,7 @@ dictEntry Jmpnz, "JMPNZ", 5, 0
 
 ; DUP primitive - Duplicate top of stack
 ; ( a -- a a )
-dictEntry dup, "DUP", 3, 0
+dictEntry Dup, "DUP", 3, 0
     call fDup
     NEXT
 
@@ -263,8 +246,12 @@ dictEntry div, "/", 1, 0
 ; /MOD primitive - Divide top two stack elements and return remainder
 ; ( a b -- quotient remainder )
 dictEntry mod, "/MOD", 4, 0
-    call xtdiv
-    dPush R3               ; Remainder
+    dPop R1
+    getTOS EAX
+    cdq                     ; Sign-extend EAX into EDX:EAX
+    idiv R1
+    setTOS EAX
+    dPush EDX               ; Push the remainder
     NEXT
 
 ; = primitive - Compare top two stack elements for equality
@@ -330,8 +317,9 @@ dictEntry Numq, "NUMBER?", 7, 0
 ; WORD primitive - parse the next word from >IN
 ; ( --len )
 dictEntry Word, "WORD", 4, 0
-    xor R2, R2              ; Length
     mov R1, [TO_IN]         ; Load TO_IN into R1
+    xor R2, R2              ; Length
+    ; NOTE R3 is EDX; dl is used for character transfer
     mov R4, WORD_START
 .skip_ws:                   ; Skip leading whitespace
     mov dl, [R1]
@@ -343,8 +331,8 @@ dictEntry Word, "WORD", 4, 0
     jmp .skip_ws
 .collect_wd:                ; Collect characters until whitespace or null
     mov [R4+R2], dl
-    inc R1
-    inc R2
+    inc R1                  ; Next character
+    inc R2                  ; Increment length
     mov dl, [R1]
     cmp dl, 32
     jg .collect_wd
@@ -396,7 +384,7 @@ dictEntry strcpy, "S-CPY", 5, 0
 ; ( ch -- )
 dictEntry Emit, "EMIT", 4, 0
     call vga_ser_emit
-    dDrop
+    call fDrop
     NEXT
 
 ; COMMA primitive - store TOS value at HERE, increment HERE by 4
@@ -465,43 +453,43 @@ dictEntry Find, "FIND", 4, 0
 
 ; 1+ primitive - Increment TOS by 1
 ; (n -- n+1)
-dictEntry onePlus, "1+", 2, 0
-    inc EAX
+dictEntry OnePlus, "1+", 2, 0
+    inc TOS
     NEXT
 
 ; 1- primitive - Decrement TOS by 1
 ; (n -- n-1)
-dictEntry oneMinus, "1-", 2, 0
-    dec EAX
+dictEntry OneMinus, "1-", 2, 0
+    dec TOS
     NEXT
 
 ; FETCH primitive - Fetch a cell from memory
 ; ( addr -- value )
-dictEntry fetch, "@", 1, 0
+dictEntry Fetch, "@", 1, 0
     mov TOS, [TOS]
     NEXT
 
 ; STORE primitive - Store a cell into memory
 ; ( value addr -- )
-dictEntry store, "!", 1, 0
-    dPop R1                ; Address to store into
-    dPop R2                ; Value to store
+dictEntry Store, "!", 1, 0
+    dPop R1                  ; Address to store into
+    dPop R2                  ; Value to store
     mov [R1], R2
     NEXT
 
 ; CFETCH primitive - Fetch a cell from memory
 ; ( addr -- value )
-dictEntry cFetch, "C@", 2, 0
+dictEntry CFetch, "C@", 2, 0
     movzx R1, byte [TOS]
     setTOS R1
     NEXT
 
 ; CSTORE primitive - Store a cell into memory
 ; ( value addr -- )
-dictEntry cStore, "C!", 2, 0
-    dPop EBX               ; Address to store into
-    dPop ECX               ; Value to store
-    mov [EBX], CL
+dictEntry CStore, "C!", 2, 0
+    dPop R1                  ; Address to store into
+    dPop ECX                 ; Value to store
+    mov [R1], CL
     NEXT
 
 ; 3 free variables
@@ -550,28 +538,31 @@ dictEntry zStore, "Z!", 2, 0
 dictEntry toLStk, ">L", 2, 0
     add DWORD [LSP], CELL_SZ
     mov R1, [LSP]
-    dPop R2
-    mov [R1], R2
+    mov [R1], TOS
+    call fDrop
     NEXT
 
 ; L@ primitive - Fetch from local stack
 ; ( -- value )
 dictEntry atLStk, "L@", 2, 0
     mov R1, [LSP]
-    mov R2, [R1]
-    dPush R2
+    dPush [R1]
     NEXT
 
 ; L> primitive - Move from local stack
 ; ( -- value )
 dictEntry fromLStk, "L>", 2, 0
-    call xtatLStk
+    mov R1, [LSP]
+    mov R2, [R1]
+    dPush R2
     cmp R1, LSTK
-    jle .under
-    sub DWORD [LSP], CELL_SZ
+    jna .under
+    sub R1, CELL_SZ
+    mov [LSP], R1
     NEXT
 .under:
     mov DWORD [LSP], LSTK
+    setTOS 0
     NEXT
 
 dictEntry lspAddr, "(LSP)", 5, 0
@@ -579,10 +570,10 @@ dictEntry lspAddr, "(LSP)", 5, 0
     NEXT
 
 dictEntry zType, "ZTYPE", 5, 0
-    push ESI                ; save IIP
+    push IIP                ; save IIP
     dPop ESI
     call vga_ser_write
-    pop ESI                 ; restore IIP
+    pop IIP                 ; restore IIP
     NEXT
 
 ; I>A primitive - Convert integer to ASCII string
@@ -590,7 +581,7 @@ dictEntry zType, "ZTYPE", 5, 0
 dictEntry iToA, "I>A", 3, 0
     mov EBX, [BASE]
     call iToA
-    setTOS ESI
+    setTOS EDI
     dPush ECX
     NEXT
 
@@ -606,7 +597,7 @@ dictEntry WordAddr, "(WORD)", 6, 0
     dd xtLit, WORD_START
     dd xtRet
 
-dictEntry toIn, ">IN", 3, 0
+dictEntry ToIn, ">IN", 3, 0
     dd xtLit, TO_IN
     dd xtRet
 
@@ -649,49 +640,8 @@ dictEntry Dot, ".", 1, 0
 ; ============================================================================
 ; : outer ( str -- )
 dictEntry Outer, "OUTER", 5, 0
-    mov R1, [TO_IN]         ; Save >IN
-    push R1
-    dPop R2                 ; Get input string
-    mov [TO_IN], R2         ; Set >IN
-.loop:
-    call xtWord             ; Parse next word into buffer at WORD_START
-    dPop R1                 ; Get length of the parsed word
-    call xtDrop             ; Drop the address of the word buffer - we know it
-    test R1, R1             ; If length is 0, we're done
-    jz .done
-    ; Check if the word is a number
-    dPush WORD_START        ; Push the address of the parsed word
-    call xtNumq             ; Check if it's a number
-    dPop R1
-    test R1, R1             ; 0 means not a number
-    jz .not_num
-    ; TODO: if STATE = 1, compile the number into the current word
-    call xtDot
-    jmp .loop
-.not_num:
-    ; Check if the word is in dictionary
-    dPush WORD_START        ; Push the address of the parsed word
-    call xtFind             ; Check if it's a number
-    dPop R1
-    test R1, R1             ; 0 means not a word
-    jz .not_word
-    ; TODO: Execute the word if found
-    call xtWordAddr         ; TEMP
-    call xtzType            ; TEMP
-    jmp .loop
-.not_word:
-    ; TODO: If not found, print error message
-    ; TEMP: Output the word
-    call xtWordAddr
-    call xtzType
-    dPush '?'
-    call xtEmit
-    call xtSpace
-    jmp .loop
-.done:
-    pop R1                  ; Restore >IN
-    mov [TO_IN], R1
-    ret
+    ; TODO: Implement the outer interpreter logic here
+    dd xtRet
 
 ; ============================================================================
 ; COLD Start
@@ -699,19 +649,8 @@ dictEntry Outer, "OUTER", 5, 0
 ; include 'tests.inc'            ; Include the test suite for now
 
 dictEntry Cold, "COLD", 4, 0
-    mov dword [LAST], last_de
-    mov dword [HERE], DICT_START
-    mov ebp, DATA_STK_TOP      ; Initialize data stack pointer (EBP)
-    mov edx, LSTK              ; Initialize local stack pointer (LSP)
-    mov [LSP], edx
-    mov dword [BASE], 10
-    mov dword [STATE], 0
-    xor TOS, TOS               ; Clear TOS
-    ; call xtTests               ; run the test suite for now
-    dPush FORTH_SRC
-    call xtOuter
-    ret
-
+    ; TODO: Implement the cold start logic here
+    dd xtRet
 
 ; ============================================================================
 ; FORTH variables
@@ -739,6 +678,11 @@ FORTH_SRC: db ": test1 123 ;", 10
 TheROM:
     dd xtLit, Hello, xtzType, xtCR
     dd xtWords, xtCR
-    dd xtLit, FORTH_SRC, xtzType
-    dd xtLit, Bye, xtzType, xtCR
+    dd xtLit, FORTH_SRC, xtToIn, xtStore
+.wl:
+    dd xtWord, xtJmpz, .wle
+    dd xtLit, WORD_START, xtzType, xtSpace
+    dd xtJmp, .wl
+.wle:
+    dd xtCR, xtLit, Bye, xtzType, xtCR
     dd xtRet

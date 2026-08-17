@@ -90,7 +90,7 @@ inner:
     add IIP, 4          ; Increment the instruction pointer
     cmp R1, primsEnd    ; Is it a primitive?
     jg doWord           ; If not, must be a word
-    jmp R1              ; Jump to the subroutine
+    jmp R1              ; Jump to the primitive's code
 
 ; ============================================================================
 ; Forth Primitives - Start

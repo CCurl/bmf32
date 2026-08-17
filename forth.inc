@@ -186,7 +186,7 @@ dictEntry keyq, "KEY?", 4, 0
 
 ; SWAP primitive - Exchange top two stack elements
 ; ( a b -- b a )
-dictEntry swap, "SWAP", 4, 0
+dictEntry Swap, "SWAP", 4, 0
     getTOS R1
     setTOS NOS
     setNOS R1
@@ -194,21 +194,21 @@ dictEntry swap, "SWAP", 4, 0
 
 ; OVER primitive - push NOS
 ; ( a b -- a b a )
-dictEntry over, "OVER", 4, 0
+dictEntry Over, "OVER", 4, 0
     getNOS R1
     dPush R1
     NEXT
 
 ; TIMER primitive - Get the current TIMER value
 ; ( -- ticks )
-dictEntry timer, "TIMER", 5, 0
+dictEntry Timer, "TIMER", 5, 0
     mov R1, [timer_ticks]
     dPush R1
     NEXT
 
 ; ADD primitive - Add top two stack elements
 ; ( a b -- sum )
-dictEntry add, "+", 1, 0
+dictEntry Add, "+", 1, 0
     dPop R1
     getTOS EAX
     add EAX, R1
@@ -217,7 +217,7 @@ dictEntry add, "+", 1, 0
 
 ; SUB primitive - Subtract top two stack elements
 ; ( a b -- diff )
-dictEntry sub, "-", 1, 0
+dictEntry Sub, "-", 1, 0
     dPop R1
     getTOS EAX
     sub EAX, R1
@@ -226,7 +226,7 @@ dictEntry sub, "-", 1, 0
 
 ; MULT primitive - Multiply top two stack elements
 ; ( a b -- product )
-dictEntry mult, "*", 1, 0
+dictEntry Mult, "*", 1, 0
     dPop R1
     getTOS EAX
     imul EAX, R1
@@ -235,20 +235,20 @@ dictEntry mult, "*", 1, 0
 
 ; DIV primitive - Divide top two stack elements
 ; ( a b -- quotient )
-dictEntry div, "/", 1, 0
+dictEntry Div, "/", 1, 0
     dPop R1
     getTOS EAX
-    cdq                     ; Sign-extend EAX into EDX:EAX
+    cdq                     ; Sign-extEnd EAX into EDX:EAX
     idiv R1
     setTOS EAX
     NEXT
 
 ; /MOD primitive - Divide top two stack elements and return remainder
 ; ( a b -- quotient remainder )
-dictEntry mod, "/MOD", 4, 0
+dictEntry Mod, "/MOD", 4, 0
     dPop R1
     getTOS EAX
-    cdq                     ; Sign-extend EAX into EDX:EAX
+    cdq                     ; Sign-extEnd EAX into EDX:EAX
     idiv R1
     setTOS EAX
     dPush EDX               ; Push the remainder
@@ -256,7 +256,7 @@ dictEntry mod, "/MOD", 4, 0
 
 ; = primitive - Compare top two stack elements for equality
 ; ( a b -- flag )
-dictEntry eq, "=", 1, 0
+dictEntry Eq, "=", 1, 0
     dPop R1
     getTOS R2
     cmp R2, R1
@@ -267,7 +267,7 @@ dictEntry eq, "=", 1, 0
 
 ; AND primitive - Bitwise AND top two stack elements
 ; ( a b -- a&b )
-dictEntry and, "AND", 3, 0
+dictEntry And, "AND", 3, 0
     dPop R1
     getTOS EAX
     and EAX, R1
@@ -276,7 +276,7 @@ dictEntry and, "AND", 3, 0
 
 ; OR primitive - Bitwise OR top two stack elements
 ; ( a b -- a|b )
-dictEntry or, "OR", 2, 0
+dictEntry Or, "OR", 2, 0
     dPop R1
     getTOS EAX
     or EAX, R1
@@ -285,7 +285,7 @@ dictEntry or, "OR", 2, 0
 
 ; XOR primitive - Bitwise XOR top two stack elements
 ; ( a b -- a^b )
-dictEntry xor, "XOR", 3, 0
+dictEntry Xor, "XOR", 3, 0
     dPop R1
     getTOS EAX
     xor EAX, R1
@@ -294,7 +294,7 @@ dictEntry xor, "XOR", 3, 0
 
 ; COM primitive - Bitwise complement (NOT) of top of stack
 ; ( a -- ~a )
-dictEntry com, "COM", 3, 0
+dictEntry Com, "COM", 3, 0
     getTOS EAX
     not EAX
     setTOS EAX
@@ -302,7 +302,7 @@ dictEntry com, "COM", 3, 0
 
 ; NUMBER? primitive - Check if string is a number
 ; ( str -- (num 1) | 0 )
-dictEntry Numq, "NUMBER?", 7, 0
+dictEntry NumQ, "NUMBER?", 7, 0
     push IIP                ; Save IIP
     dPop ESI
     call numq               ; Check if string in ESI is a number
@@ -646,7 +646,7 @@ dictEntry Outer, "OUTER", 5, 0
 ; ============================================================================
 ; COLD Start
 ; ============================================================================
-; include 'tests.inc'            ; Include the test suite for now
+include 'tests.inc'            ; Include the test suite for now
 
 dictEntry Cold, "COLD", 4, 0
     ; TODO: Implement the cold start logic here
@@ -684,5 +684,6 @@ TheROM:
     dd xtLit, WORD_START, xtzType, xtSpace
     dd xtJmp, .wl
 .wle:
-    dd xtCR, xtLit, Bye, xtzType, xtCR
+    dd xtCR, xtTests
+    dd xtLit, Bye, xtzType, xtCR
     dd xtRet

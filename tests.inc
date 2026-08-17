@@ -1,119 +1,109 @@
 ; ============================================================================
 ; Tests
 ; ============================================================================
-dictEntry found, "FOUND", 5, 0
-    dPush msgFF
-    jmp XT_zType
+dictEntry Found, "FOUND", 5, 0
+    dd xtLit, msgFF
+    dd xtzType
+    dd xtRet
 
-dictEntry notFound, "NOT-FOUND", 9, 0
-    dPush msgNF
-    jmp XT_zType
+dictEntry NotFound, "NOT-FOUND", 9, 0
+    dd xtLit, msgNF
+    dd xtzType
+    dd xtRet
 
 ;    : test1 1 LIT 16 CELLS + EMIT ;
-dictEntry test1, "TEST1", 5, 0
-    dPush 12345
-    call XT_dup
-    call XT_dot
-    call XT_dot
-    jmp XT_cr
+dictEntry Test1, "TEST1", 5, 0
+    dd xtLit, 12345
+    dd xtDup
+    dd xtDot
+    dd xtDot
+    dd xtRet
 
-dictEntry test2, "TEST2", 5, 0
-    dPush 1
-    dPush 2
-    dPush 3
-    call XT_add
-    call XT_add
-    jmp XT_dot
+dictEntry Test2, "TEST2", 5, 0
+    dd xtLit, 1
+    dd xtLit, 2
+    dd xtLit, 3
+    dd xtAdd
+    dd xtAdd
+    dd xtDot
+    dd xtRet
 
 ;    : test3 IF 'Y' EMIT EXIT THEN 'N' EMIT ;
-dictEntry test3, "TEST3", 5, 0
-    dPop ebx
-    test ebx, ebx
-    jz .is0
-    dPush 'Y'
-    jmp XT_emit
+dictEntry Test3, "TEST3", 5, 0
+    dd xtJmpz, .is0
+    dd xtLit, 'Y'
+    dd xtEmit
+    dd xtRet
 .is0:
-    dPush 'N'
-    jmp XT_emit
+    dd xtLit, 'N'
+    dd xtEmit
+    dd xtRet
 
 ;    : test4  ;
-dictEntry test4, "TEST4", 5, 0
-    dPush 222332
-    call XT_onePlus
-    call XT_xStore
-    call XT_xFetch
-    call XT_dot
-    ret
+dictEntry Test4, "TEST4", 5, 0
+    dd xtLit, 222332, xtOnePlus, xtxStore, xtxFetch, xtDot
+    dd xtRet
 
 ;    : test5 'N' SWAP IF DROP 'Y' THEN EMIT ;
-dictEntry test5, "TEST5", 5, 0
-    dPush 'N'
-    call XT_swap
-    dPop ebx
-    test ebx, ebx
-    jz .emit
-    call XT_drop
-    dPush 'Y'
+dictEntry Test5, "TEST5", 5, 0
+    dd xtLit, 'N'
+    dd xtSwap
+    dd xtJmpz, .emit
+    dd xtDrop
+    dd xtLit, 'Y'
 .emit:
-    jmp XT_emit
+    dd xtEmit
+    dd xtRet
 
-dictEntry testHW, "TEST-HW", 7, 0
-    dPush helloWorld
-    call XT_zType
-    jmp XT_cr
+dictEntry TestHW, "TEST-HW", 7, 0
+    dd xtLit, helloWorld
+    dd xtzType
+    dd xtCR
+    dd xtRet
 
+dictEntry TDS, "TDS", 3, 0
 td_sub:
-    call XT_dup
-    call XT_zType
-    call XT_find
-    test TOS, TOS
-    jz .nf1
-    call XT_found
-    jmp .xit
+    dd xtDup
+    dd xtzType
+    dd xtFind
+    dd xtJmpz, .nf1
+    dd xtFound
+    dd xtRet
 .nf1:
-    call XT_notFound
-.xit:
-    ret
+    dd xtNotFound
+    dd xtRet
 
 ; TEST-DICT - Test FIND primitive
 ; Tests dictionary lookup with various word names
-dictEntry testDict, "TEST-DICT", 9, 0
-    call XT_cr
-    dPush lookup_str_1
-    call td_sub
-    dPush lookup_str_2
-    call td_sub
-    dPush lookup_str_3
-    call td_sub
-    dPush lookup_str_4
-    call td_sub
-    call XT_words
-    call XT_cr
-    ret
+dictEntry TestDict, "TEST-DICT", 9, 0
+    dd xtCR
+    dd xtLit, lookup_str_1
+    dd xtTDS
+    dd xtLit, lookup_str_2
+    dd xtTDS
+    dd xtLit, lookup_str_3
+    dd xtTDS
+    dd xtLit, lookup_str_4
+    dd xtTDS
+    dd xtRet
 
-dictEntry tests, "TESTS", 5, 0
-    call XT_testHW
-    call XT_test1
-    call XT_test2
-    dPush 1
-    call XT_test3
-    dPush 0
-    call XT_test3
-    call XT_space
-    call XT_test4
-    dPush 123
-    call XT_test5
-    dPush 0
-    call XT_test5
-    call XT_space
-    call XT_testDict
-    call XT_cr
-    ret
+dictEntry Tests, "TESTS", 5, 0
+    dd xtTestHW
+    dd xtTest1
+    dd xtTest2
+    dd xtLit, 1, xtTest3
+    dd xtLit, 0, xtTest3
+    dd xtSpace
+    dd xtTest4
+    dd xtLit, 123, xtTest5
+    dd xtLit,   0, xtTest5
+    dd xtSpace
+    dd xtTestDict
+    dd xtRet
 
 ; ============================================================================
 ; Test data
 ; ============================================================================
-
 
 ; Test strings for numq
 msg_test: db 10, "Testing numq:", 10, 0

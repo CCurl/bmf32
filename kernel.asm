@@ -665,5 +665,5 @@ kernel_main:
 ; SECTION: DATA & STRINGS
 ; ============================================================================
 
-msg_started: db "BMF32 - version 0.0.1", 10, 0
+msg_started: db "BMF32 - version 0.0.2", 10, 0
 msg_halt: db 10, "Halting.", 10, 0

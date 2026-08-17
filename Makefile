@@ -22,7 +22,7 @@ $(KERNEL_ELF): $(KERNEL_OBJ)
 	$(LD) $(LDFLAGS) $(KERNEL_OBJ) -o $(KERNEL_ELF)
 
 qemu: $(KERNEL_ELF)
-	qemu-system-i386 -kernel $(KERNEL_ELF) -m 32M -serial stdio
+	qemu-system-i386 -kernel $(KERNEL_ELF) -m 16M -serial stdio
 
 run: qemu
 

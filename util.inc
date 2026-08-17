@@ -26,6 +26,25 @@ streq:
     pop ebx
     ret
 
+; ============================================================================
+; strcpy - copy null-terminated string from ESI to EDI
+; Entry: ESI = source string, EDI = destination buffer
+; Exit: no registers modified, destination string is null-terminated
+strcpy:
+    push eax
+    push ecx
+    xor ecx, ecx
+
+.loop:
+    mov al, [esi+ecx]
+    mov [edi+ecx], al
+    inc ecx
+    test al, al
+    jnz .loop
+
+    pop ecx
+    pop eax
+    ret
 
 ; ============================================================================
 ; hex_to_string - convert a number to a hex string
@@ -73,126 +92,46 @@ hex_to_string:
 ; ============================================================================
 ; numq - Check if string is a number and convert to integer
 ; Entry: ESI = pointer to string
-; Exit: EAX = 1 if valid number, 0 if not
+; Exit: EBX = 1 if valid number, 0 if not
 ;       ECX = accumulated number (if valid)
 numq:
-    push ebx
     push edx
-    push edi
     
-    ; Check for char literal: 'c' format
-    mov ax, [esi]
-    mov bx, [esi+2]
-
-    test al, al             ; Empty string? fail
+    xor edx, edx            ; Clear negative flag
+    xor ecx, ecx            ; Clear accumulated number
+    mov bl, [esi]
+    test bl, bl             ; Empty string? fail
     jz .numq_fail
-
-    cmp al, 39              ; 39 = ' (single quote)
-    jne .numq_check_prefix
-    
-    cmp bl, 39              ; Check closing quote
-    jne .numq_fail          ; Not a valid char literal if not closed
-
-    test bh, bh             ; Check null terminator
-    jnz .numq_fail          ; Not a valid char literal if not null-terminated
-    
-    ; Valid char literal: push the character value
-    movzx ecx, ah           ; Zero-extend AH to ECX
-    jmp .numq_push_result
-    
-.numq_check_prefix:
-    ; Load base (default from BASE variable)
-    mov ebx, [BASE]         ; EBX = base
-    xor edx, edx            ; EDX = 0 (1 => isNeg)
-    
-    ; Check for % prefix (binary)
-    cmp al, '%'
-    jne .numq_check_hash
-    mov ebx, 2
-    inc esi
-    jmp .numq_parse_start   ; No negative sign for binary
-    
-.numq_check_hash:
-    ; Check for # prefix (decimal)
-    cmp al, '#'
-    jne .numq_check_dollar
-    mov ebx, 10
-    inc esi
-    jmp .numq_check_minus   ; Decimal allows negative sign
-    
-.numq_check_dollar:
-    ; Check for $ prefix (hex)
-    cmp al, '$'
-    jne .numq_check_minus
-    mov ebx, 16
-    inc esi
-    jmp .numq_parse_start   ; No negative sign check for hex
     
 .numq_check_minus:
-    ; Check for minus sign (only if base == 10)
-    cmp ebx, 10
-    jne .numq_parse_start
-    
-    mov al, [esi]
-    cmp al, '-'
-    jne .numq_parse_start
+    cmp bl, '-'
+    jne .numq_loop
     mov edx, 1              ; Set negative flag
     inc esi
-    
-.numq_parse_start:
     ; Check if string is empty after prefix/minus
-    mov al, [esi]
-    test al, al
+    mov bl, [esi]
+    test bl, bl
     jz .numq_fail
     
-    ; Initialize accumulator
-    xor ecx, ecx            ; ECX = accumulated number
-    
 .numq_loop:
-    mov al, [esi]
-    test al, al
+    mov bl, [esi]
+    test bl, bl
     jz .numq_done
-    
-    ; Convert uppercase to lowercase
-    cmp al, 'A'
-    jl .numq_char_ok
-    cmp al, 'Z'
-    jg .numq_char_ok
-    add al, 32              ; Convert to lowercase
     
 .numq_char_ok:
     ; Convert char to digit value (0-9 or 10-15 for a-f)
-    xor edi, edi            ; EDI = digit value
-    
     ; Try 0-9
-    cmp al, '0'
+    cmp bl, '0'
     jl .numq_fail
-    cmp al, '9'
-    jg .numq_try_letters
-    
-    sub al, '0'
-    movzx edi, al
-    jmp .numq_check_range
-    
-.numq_try_letters:
-    ; Try a-f
-    cmp al, 'a'
-    jl .numq_fail
-    cmp al, 'f'
+    cmp bl, '9'
     jg .numq_fail
     
-    sub al, 'a'
-    add al, 10
-    movzx edi, al
-    
-.numq_check_range:
-    ; Check if digit < base
-    cmp edi, ebx
-    jge .numq_fail
+    sub bl, '0'
+    movzx ebx, bl
     
     ; Accumulate: n = n*base + digit
-    imul ecx, ebx           ; ECX = ECX * base
-    add ecx, edi            ; ECX = ECX + digit
+    imul ecx, ecx, 10       ; ECX = ECX * 10
+    add ecx, ebx            ; ECX = ECX + digit
     
     inc esi
     jmp .numq_loop
@@ -200,52 +139,53 @@ numq:
 .numq_done:
     ; Apply sign if needed
     test edx, edx
-    jz .numq_push_result
+    jz .numq_good
     neg ecx
     
-.numq_push_result:
-    mov eax, 1
+.numq_good:
+    mov ebx, 1
     jmp .numq_return
     
 .numq_fail:
     xor ecx, ecx
-    xor eax, eax
+    xor ebx, ebx
     
 .numq_return:
-    pop edi
     pop edx
-    pop ebx
     ret
 
 ; ******************************************************************************
-; iToA: input:  EAX: the number to print - destroyed
+; iToA: input:  EAX: the number to print
 ;       input:  EBX: the base to convert to (2, 10, 16)
-;       output: ECX: the start of the string
-;               EDX: the length of the string
+;       output: EDI: the start of the string
+;               ECX: the length of the string
 i2aBuf: db 64 dup(0)
-iToA:   mov     ecx, i2aBuf+63  ; output string start
-        mov     edx, 0          ; output length
-        mov     BYTE [ecx], 0
-        push    0               ; isNegative flag
+iToA:   push    eax             ; save EAX
+        mov     edi, i2aBuf+63  ; output string start
+        xor     ecx, ecx        ; output length
+        xor     edx, edx        ; isNegative flag
+        mov     BYTE [edi], 0   ; NULL terminate the string
         bt      eax, 31
-        jnc     .L
-        inc     BYTE [esp]
+        jnc     .L0
+        mov     edx, 1             ; set isNegative flag
         neg     eax
-.L:     mov     edx, 0
+.L0:    push    edx
+.loop:  cdq
         div     ebx
         add     dl, '0'
         cmp     dl, '9'
         jle     .L1
         add     dl, 7
-.L1:    dec     ecx
-        mov     BYTE [ecx], dl
-        inc     edx
+.L1:    dec     edi
+        mov     BYTE [edi], dl
+        inc     ecx
         test    eax, eax
-        jnz     .L
-        pop     eax             ; get the negative flag
-        test    eax, eax        ; 0 means not negative
-        jz      .X
-        dec     ecx
-        mov     BYTE [ecx], '-'
-        inc     edx
-.X:     ret
+        jnz     .loop
+        pop     edx             ; get the negative flag
+        test    edx, edx        ; 0 means not negative
+        jz      .xit
+        dec     edi
+        mov     BYTE [edi], '-'
+        inc     ecx
+.xit:   pop     eax             ; restore original EAX
+        ret

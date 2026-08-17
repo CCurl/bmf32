@@ -1,75 +1,114 @@
 ; ============================================================================
 ; Tests
 ; ============================================================================
-;    : test1 1 LIT 16 CELLS + EMIT ;
-dictEntry test1, "TEST1", 5, 0
-    dd 0x80000001, XT_lit, 16, XT_cells, XT_add, XT_emit, XT_exit
+dictEntry Found, "FOUND", 5, 0
+    dd xtLit, msgFF
+    dd xtzType
+    dd xtRet
 
-dictEntry test2, "TEST2", 5, 0
-    dd XT_test1, XT_cr, XT_words, XT_cr, XT_exit
+dictEntry NotFound, "NOT-FOUND", 9, 0
+    dd xtLit, msgNF
+    dd xtzType
+    dd xtRet
+
+;    : test1 1 LIT 16 CELLS + EMIT ;
+dictEntry Test1, "TEST1", 5, 0
+    dd xtLit, 12345
+    dd xtDup
+    dd xtDot
+    dd xtDot
+    dd xtRet
+
+dictEntry Test2, "TEST2", 5, 0
+    dd xtLit, 1
+    dd xtLit, 2
+    dd xtLit, 3
+    dd xtAdd
+    dd xtAdd
+    dd xtDot
+    dd xtRet
 
 ;    : test3 IF 'Y' EMIT EXIT THEN 'N' EMIT ;
-dictEntry test3, "TEST3", 5, 0
-    dd XT_jmpz, t3_no
-       dd $80000059, XT_emit, XT_exit
-t3_no:
-    dd $8000004E, XT_emit, XT_exit
+dictEntry Test3, "TEST3", 5, 0
+    dd xtJmpz, .is0
+    dd xtLit, 'Y'
+    dd xtEmit
+    dd xtRet
+.is0:
+    dd xtLit, 'N'
+    dd xtEmit
+    dd xtRet
 
-;    : test4 'N' X! IF 'Y' X! THEN X@ EMIT ;
-dictEntry test4, "TEST4", 5, 0
-    dd $8000004E, XT_xStore, XT_jmpz, t4_no
-        dd $80000059, XT_xStore
-t4_no:
-    dd XT_xFetch, XT_emit, XT_exit
+;    : test4  ;
+dictEntry Test4, "TEST4", 5, 0
+    dd xtLit, 222332, xtOnePlus, xtxStore, xtxFetch, xtDot
+    dd xtRet
 
 ;    : test5 'N' SWAP IF DROP 'Y' THEN EMIT ;
-dictEntry test5, "TEST5", 5, 0
-    dd $8000004E, XT_swap, XT_jmpz, t5_no
-        dd XT_drop, $80000059
-t5_no:
-    dd XT_emit, $80000041, XT_xStore
-    dd XT_xAtPlus, XT_emit, XT_xAtPlus, XT_emit, XT_xAtPlus, XT_emit
-    dd XT_exit
+dictEntry Test5, "TEST5", 5, 0
+    dd xtLit, 'N'
+    dd xtSwap
+    dd xtJmpz, .emit
+    dd xtDrop
+    dd xtLit, 'Y'
+.emit:
+    dd xtEmit
+    dd xtRet
 
-dictEntry testHW, "TEST-HW", 7, 0
-    dd XT_lit, helloWorld, XT_zType
-    dd XT_hex, XT_lit, 12345, XT_iToA, XT_drop, XT_space, XT_zType
-    dd XT_dec, XT_lit, 12345, XT_iToA, XT_drop, XT_space, XT_zType
-    dd XT_cr, XT_exit
+dictEntry TestHW, "TEST-HW", 7, 0
+    dd xtLit, helloWorld
+    dd xtzType
+    dd xtCR
+    dd xtRet
 
-; TEST-NUMQ - Test NUMBER? primitive
-; Tests parsing various number formats: decimal, hex, binary, char literals
-dictEntry testNumq, "TEST-NUMQ", 9, 0
-    dd XT_exit                ; TODO: implement number parsing tests
+dictEntry TDS, "TDS", 3, 0
+td_sub:
+    dd xtDup
+    dd xtzType
+    dd xtFind
+    dd xtJmpz, .nf1
+    dd xtFound
+    dd xtRet
+.nf1:
+    dd xtNotFound
+    dd xtRet
 
 ; TEST-DICT - Test FIND primitive
 ; Tests dictionary lookup with various word names
-dictEntry testDict, "TEST-DICT", 9, 0
-    dd XT_exit                ; TODO: implement dictionary lookup tests
+dictEntry TestDict, "TEST-DICT", 9, 0
+    dd xtCR
+    dd xtLit, lookup_str_1
+    dd xtTDS
+    dd xtLit, lookup_str_2
+    dd xtTDS
+    dd xtLit, lookup_str_3
+    dd xtTDS
+    dd xtLit, lookup_str_4
+    dd xtTDS
+    dd xtRet
 
-; TEST-WORD - Test WORD primitive
-; Tests word parsing from input stream
-dictEntry testWord, "TEST-WORD", 9, 0
-    dd XT_exit                ; TODO: implement word parsing tests
-
-dictEntry tests, "TESTS", 5, 0
-    dd XT_testHW, XT_test1, XT_test2
-    dd XT_lit, 1, XT_test3, XT_lit, 0, XT_test3, XT_space
-    dd XT_lit, 1, XT_test4, XT_lit, 0, XT_test4, XT_space
-    dd XT_lit, 1, XT_test5, XT_lit, 0, XT_test5, XT_space
-    dd XT_testNumq, XT_testDict, XT_testWord
-    dd XT_cr, XT_exit
+dictEntry Tests, "TESTS", 5, 0
+    dd xtTestHW
+    dd xtTest1
+    dd xtTest2
+    dd xtLit, 1, xtTest3
+    dd xtLit, 0, xtTest3
+    dd xtSpace
+    dd xtTest4
+    dd xtLit, 123, xtTest5
+    dd xtLit,   0, xtTest5
+    dd xtSpace
+    dd xtTestDict
+    dd xtRet
 
 ; ============================================================================
 ; Test data
 ; ============================================================================
 
-section '.data'
-
 ; Test strings for numq
 msg_test: db 10, "Testing numq:", 10, 0
-msg_test_pass: db " => ", 0
-msg_test_fail: db " => FAIL", 10, 0
+msgFF: db " - FOUND", 10, 0
+msgNF: db " - NOT FOUND", 10, 0
 
 test_str_1: db "'A'", 0          ; Char literal: should be 65
 test_str_2: db "$FF", 0          ; Hex: should be 255
@@ -89,7 +128,4 @@ lookup_str_2: db "dup", 0         ; Should find dup (case-insensitive)
 lookup_str_3: db "SWAP", 0        ; Should find SWAP
 lookup_str_4: db "NOTAWORD", 0    ; Should NOT find this
 
-; Test strings for WORD primitive
-msg_word_test: db 10, "Testing WORD:", 10, 0
-word_test_input_1: db "  hello  world!", 0 ; Leading spaces, should parse "hello"
 helloWorld: db "Hello, World! ", 0

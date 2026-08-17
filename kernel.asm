@@ -6,6 +6,14 @@
 format ELF
 use32
 
+; Macro to print a char to the serial port (for debugging)
+macro dbgPC ch {
+    push eax
+    mov al, ch
+    call ser_emit
+    pop eax
+}
+
 ; ============================================================================
 ; SECTION: CONSTANTS & CONFIGURATION
 ; ============================================================================
@@ -16,7 +24,6 @@ MULTIBOOT_HEADER_FLAGS = 0x00000003
 MULTIBOOT_CHECKSUM = -(MULTIBOOT_HEADER_MAGIC + MULTIBOOT_HEADER_FLAGS)
 
 ; VGA Text Mode Console
-VGA_ADDRESS = 0xB8000
 VGA_WIDTH = 80
 VGA_HEIGHT = 25
 
@@ -27,13 +34,16 @@ SERIAL_PORT = 0x3F8
 ; MEMORY LAYOUT (32 MB total)
 ; ============================================================================
 
-DICT_START     = 0x00600500  ; Dictionary (grows UP)
-DATA_STK_BASE  = 0x00600400  ; Data stack (grows DOWN)
-GRAPHICS_END   = 0x005FFFFF  ; Graphics buffer end
-GRAPHICS_START = 0x00200000  ; Graphics buffer start (4 MB)
-WORD_START     = 0x00180200  ; Word buffer (256 bytes)
-TIB_START      = 0x00180000  ; Text Input Buffer (512 bytes)
-KERNEL_START   = 0x00100000  ; Kernel entry point (GRUB multiboot)
+FREE_END       = 0x01FFFFFF  ; Free memory ends here (grows UP)
+FREE_START     = 0x00100000  ; Free memory starts here (grows UP)
+VGA_ADDRESS    = 0x000B8000  ; VGA text buffer (80x25 × 2 bytes = 4 KB)
+VGA_GRAPHICS   = 0x000A0000  ; VGA graphics memory (96 KB)
+DICT_START     = 0x00018900  ; Dictionary (grows UP)
+WORD_START     = 0x00018500  ; Word buffer (1 KB)
+TIB_START      = 0x00018400  ; Text Input Buffer (1 KB)
+DATA_STK_TOP   = 0x00018400  ; Data stack (1 KB, grows DOWN)
+RET_STK_TOP    = 0x00018000  ; Return stack (16 KB, grows DOWN)
+KERNEL_START   = 0x00010000  ; Kernel entry point
 
 ; Note: ESP (kernel stack) remains in kernel .bss section (16 KB)
 
@@ -47,16 +57,9 @@ section '.multiboot' align 4
     dd MULTIBOOT_CHECKSUM
 
 ; ============================================================================
-; SECTION: MEMORY LAYOUT
+; Data section - global variables
 ; ============================================================================
 
-; Kernel stack (16 KB) - grows downward
-section '.bss' align 16
-stack_bottom:
-    rb 16384
-stack_top:
-
-; Data section - global variables
 section '.data'
 cursor_x: dd 0
 cursor_y: dd 0
@@ -91,7 +94,7 @@ public _start
 
 _start:
     ; Setup the stack pointer
-    mov esp, stack_top
+    mov esp, RET_STK_TOP
     
     ; Save multiboot parameters to memory
     ; EAX = magic number (0x2BADB002)
@@ -115,7 +118,7 @@ _start:
 ; Clear VGA screen and reset cursor position
 ; Entry: none
 ; Exit: VGA cleared, cursor at (0,0)
-kernel_clear:
+vga_clear:
     push ebx
     push ecx
     push edx
@@ -242,10 +245,10 @@ vga_write:
     push esi
     
 .write_loop:
-    lodsb                   ; load byte from [esi] into al, increment esi
-    test al, al             ; check for null terminator
+    mov al, [esi]           ; load byte from [esi] into al, increment esi
+    inc esi
+    test al, al             ; null terminator?
     jz .write_done
-    
     call vga_emit
     jmp .write_loop
     
@@ -644,11 +647,10 @@ kernel_main:
     ; Initialize other stuff
     call init_serial         ; Serial port
 
-    call kernel_clear        ; Clear VGA screen
+    call vga_clear        ; Clear VGA screen
     mov esi, msg_started
     call vga_ser_write       ; Print "Kernel started!" to VGA and serial
 
-    call init_forth          ; Initialize FORTH dictionary and state
     call run_forth           ; Run the Forth system
 
     ; Halt the CPU
@@ -660,10 +662,8 @@ kernel_main:
     jmp .kernel_halt
 
 ; ============================================================================
-; SECTION: TEST DATA & STRINGS
+; SECTION: DATA & STRINGS
 ; ============================================================================
 
-section '.data'
-msg_started: db "Kernel started!", 10, 0
+msg_started: db "BMF32 - version 0.0.1", 10, 0
 msg_halt: db 10, "Halting.", 10, 0
-hex_buffer: db "0x00000000", 0

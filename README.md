@@ -8,6 +8,7 @@ Currently runs under QEMU (the 32-bit x86 emulator) using the `-kernel` option.
 
 - **32-bit x86 protected mode**: Full x86-32 architecture support
 - **Pure Assembly (FASM)**: Only dependency is on an assembler
+- **Tiny kernel**: 6 KB executable in a 32 KB pocket (0x00010000-0x00017FFF)
 - **VGA text console**: 80×25 text mode output (0xB8000)
 - **Serial output**: COM1 (0x3F8) for debugging/secondary output
 - **Interrupt system**: IDT + 8259 PIC with PS/2 keyboard handler
@@ -36,7 +37,7 @@ QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered
 ├── kernel.asm       # Bootloader + kernel + drivers
 ├── util.inc         # Utility functions
 ├── forth.inc        # The Forth system
-├── tests.inc        # Tests
+├── tests.inc        # Tests (temporary)
 ├── linker.ld        # Memory layout script
 ├── Makefile         # Build automation
 ├── LICENSE          # License (MIT)
@@ -55,22 +56,25 @@ make run      # Build and run in QEMU window
 - FASM 1.73.30+ (assembler)
 - GNU ld (linker, elf_i386 format)
 
-## Memory Layout (32 MB)
+## Memory Layout (16 MB)
 
 ```
-0x01FFFFFF  ┌─────────────────────────────┐
-            │ User Dictionary (grows UP)  │ ~15 MB free
-0x00600500  ├─────────────────────────────┤
-            │ Buffer                      │ 256 bytes
-0x00600400  ├─────────────────────────────┤
-            │ Data stack (grows DOWN)     │ 1 KB, 256 entries
-0x00600000  ├─────────────────────────────┤
-            │ Graphics buffer             │ 4 MB
-0x00200000  ├─────────────────────────────┤
-            │ Kernel + ESP stack          │ 1 MB (16 KB stack)
+0x01000000  ┌─────────────────────────────┐
+            │ Free                        │ 15 MB free
 0x00100000  ├─────────────────────────────┤
-            │ VGA text (HW)               │ 4 KB
+            │ ROM / System                │
+0x000C0000  ├─────────────────────────────┤
+            │ VGA text (HW, 80x25x2)      │   4 KB
 0x000B8000  ├─────────────────────────────┤
+            │ Graphics (HW)               │
+0x000A0000  ├─────────────────────────────┤
+            │ User Dict Start 0x00018900  │ 541 KB
+            │ Current word    0x00018500  │   1 KB
+            │ TIB             0x00018400  │   1 KB
+            │ Data Stack      0x00018400  │   1 KB (grows down)
+            │ Return Stack    0x00018000  │  16 KB (grown down)
+            │ Kernel          0x00010000  │  16 KB
+0x00010000  ├─────────────────────────────┤
             │ BIOS / System               │
 0x00000000  └─────────────────────────────┘
 ```
@@ -78,7 +82,8 @@ make run      # Build and run in QEMU window
 ## Kernel Components
 
 ### Bootloader (_start)
-- Stack setup (ESP -- stack_top, 16 KB kernel stack)
+- Loads at 0x00010000
+- Stack setup (ESP → stack_top, 16 KB kernel stack)
 - Calls kernel_main
 
 ### IDT & PIC (Interrupt Handling)
@@ -89,10 +94,10 @@ make run      # Build and run in QEMU window
   - IRQ1 (keyboard) enabled by default
 
 ### VGA Driver
-- `kernel_clear()` - Clear screen, reset cursor
+- `vga_clear()` - Clear screen, reset cursor
 - `vga_putchar(AL)` - Write char at cursor, advance, wrap, scroll
 - `vga_write(ESI)` - Write null-terminated string
-- Text mode: 80×25 @ 0xB8000
+- Text mode: 80×25x2 @ 0xB8000
 
 ### Serial Driver (COM1)
 - `ser_write(ESI)` - Write null-terminated string to serial port
@@ -136,7 +141,7 @@ make run      # Build and run in QEMU window
 [Offset n+2:m] Inline code (XT, variable size)
 ```
 
-- **Data stack**: EBP (data stack pointer, grows downward from DATA_STK_BASE)
+- **Data stack**: EBP (data stack pointer, grows downward from DATA_STK_TOP)
 - **Stack macros**:
   - `dPush val` - Push a value onto the data stack
   - `dPop reg` - Pop from data stack into a register
@@ -176,14 +181,13 @@ objdump -M intel -d kernel.elf  # Intel syntax
 objdump -s -j .multiboot kernel.elf | head -5
 ```
 
-## Known Limitations / TODOs
+## TODOs
 
 - [x] Stack abstraction (EBP-based data stack)
 - [x] Dictionary infrastructure
 - [ ] Core primitives (in progress)
 - [x] Number parsing (numq with multiple bases)
 - [x] Dictionary lookup (case-insensitive)
-- [ ] FORTH interpreter loop
 - [ ] Scancode -> ASCII conversion (raw scancodes in buffer)
 - [ ] Graphics buffer allocated but unused
 - [ ] Disk support
@@ -201,7 +205,7 @@ objdump -s -j .multiboot kernel.elf | head -5
 - EAX, EBX, ECX, EDX: scratch
 - ESI, EDI: String pointers / scratch
 - ESP: Return stack (Forth and x86 stack calls/returns)
-- EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_BASE`)
+- EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_TOP`)
 
 **Calling convention:**
 - No STDCALL (manual stack management)

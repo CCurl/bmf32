@@ -2,41 +2,26 @@
 ; Tests
 ; ============================================================================
 dictEntry Found, "FOUND", 5, 0
-    dd xtLit, msgFF
-    dd xtzType
-    dd xtRet
+    dd xtLit, msgFF, xtzType, xtRet
 
 dictEntry NotFound, "NOT-FOUND", 9, 0
-    dd xtLit, msgNF
-    dd xtzType
-    dd xtRet
+    dd xtLit, msgNF, xtzType, xtRet
 
 ;    : test1 1 LIT 16 CELLS + EMIT ;
 dictEntry Test1, "TEST1", 5, 0
-    dd xtLit, 12345
-    dd xtDup
-    dd xtDot
-    dd xtDot
+    dd xtLit, 12345, xtDup, xtDot, xtDot
     dd xtRet
 
 dictEntry Test2, "TEST2", 5, 0
-    dd xtLit, 1
-    dd xtLit, 2
-    dd xtLit, 3
-    dd xtAdd
-    dd xtAdd
-    dd xtDot
+    dd xtLit, 1, xtLit, 2, xtLit, 3, xtAdd, xtAdd, xtDot
     dd xtRet
 
 ;    : test3 IF 'Y' EMIT EXIT THEN 'N' EMIT ;
 dictEntry Test3, "TEST3", 5, 0
     dd xtJmpz, .is0
-    dd xtLit, 'Y'
-    dd xtEmit
-    dd xtRet
+        dd xtLit, 'Y', xtEmit, xtRet
 .is0:
-    dd xtLit, 'N'
-    dd xtEmit
+    dd xtLit, 'N', xtEmit
     dd xtRet
 
 ;    : test4  ;
@@ -46,45 +31,28 @@ dictEntry Test4, "TEST4", 5, 0
 
 ;    : test5 'N' SWAP IF DROP 'Y' THEN EMIT ;
 dictEntry Test5, "TEST5", 5, 0
-    dd xtLit, 'N'
-    dd xtSwap
-    dd xtJmpz, .emit
-    dd xtDrop
-    dd xtLit, 'Y'
+    dd xtLit, 'N', xtSwap, xtJmpz, .emit
+        dd xtDrop, xtLit, 'Y'
 .emit:
     dd xtEmit
     dd xtRet
 
 dictEntry TestHW, "TEST-HW", 7, 0
-    dd xtLit, helloWorld
-    dd xtzType
-    dd xtCR
-    dd xtRet
+    dd xtLit, helloWorld, xtzType, xtCR, xtRet
 
 dictEntry TDS, "TDS", 3, 0
-td_sub:
-    dd xtDup
-    dd xtzType
-    dd xtFind
-    dd xtJmpz, .nf1
-    dd xtFound
-    dd xtRet
+    dd xtDup, xtzType, xtFind, xtJmpz, .nf1
+        dd xtFound, xtRet
 .nf1:
-    dd xtNotFound
-    dd xtRet
+    dd xtNotFound, xtRet
 
 ; TEST-DICT - Test FIND primitive
 ; Tests dictionary lookup with various word names
 dictEntry TestDict, "TEST-DICT", 9, 0
-    dd xtCR
-    dd xtLit, lookup_str_1
-    dd xtTDS
-    dd xtLit, lookup_str_2
-    dd xtTDS
-    dd xtLit, lookup_str_3
-    dd xtTDS
-    dd xtLit, lookup_str_4
-    dd xtTDS
+    dd xtLit, lookup_str_1, xtTDS
+    dd xtLit, lookup_str_2, xtTDS
+    dd xtLit, lookup_str_3, xtTDS
+    dd xtLit, lookup_str_4, xtTDS
     dd xtRet
 
 dictEntry Tests, "TESTS", 5, 0
@@ -96,8 +64,7 @@ dictEntry Tests, "TESTS", 5, 0
     dd xtSpace
     dd xtTest4
     dd xtLit, 123, xtTest5
-    dd xtLit,   0, xtTest5
-    dd xtSpace
+    dd xtLit,   0, xtTest5, xtCR
     dd xtTestDict
     dd xtRet
 

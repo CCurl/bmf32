@@ -2,10 +2,10 @@
 ; This Forth system is subroutine threaded
 ; ============================================================================
 
-; Note: ESI is the Inner Instruction Pointer (IP)
-; Note: EAX is the Top Of Stack (TOS)
-; Note: EBP is the data stack pointer (grows downward)
-; Note: ESP is the return stack pointer (grows downward)
+; Notes: ESI is the Inner Instruction Pointer (IP)
+;      - EAX is the Top Of Stack (TOS)
+;      - EBP is the data stack pointer (grows downward)
+;      - ESP is the return stack pointer (grows downward)
 
 CELL_SZ equ 4
 TOS equ EAX

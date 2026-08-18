@@ -161,6 +161,13 @@ dictEntry Dup, "DUP", 3, 0
     call fDup
     NEXT
 
+; ?DUP primitive - Duplicate top of stack if not 0
+; ( a -- a | a a )
+dictEntry QDup, "?DUP", 4, 0
+    test TOS, TOS
+    jnz xtDup
+    NEXT
+
 ; DROP primitive - Remove top of stack
 ; ( a b -- a )
 dictEntry Drop, "DROP", 4, 0
@@ -492,6 +499,28 @@ dictEntry CStore, "C!", 2, 0
     mov [R1], CL
     NEXT
 
+; >R primitive - Store a cell into memory
+; ( value -- )
+dictEntry RTo, ">R", 2, 0
+    dPop R1                  ; Pop the value from the data stack
+    push R1                  ; Push it onto return stack
+    NEXT
+
+; R@ primitive - Get the top of the return stack
+; ( -- value )
+dictEntry RFetch, "R@", 2, 0
+    pop R1                  ; Pop the value from return stack
+    push R1                 ; Push it back on
+    dPush R1                ; Push the value onto data stack
+    NEXT
+
+; R> primitive - Fetch a cell from the return stack
+; ( -- value )
+dictEntry RFrom, "R>", 2, 0
+    pop R1                  ; Pop the value from return stack
+    dPush R1                ; Push the value onto data stack
+    NEXT
+
 ; 3 free variables
 xVal:  dd 0
 yVal:  dd 0
@@ -641,6 +670,21 @@ dictEntry Dot, ".", 1, 0
 ; : outer ( str -- )
 dictEntry Outer, "OUTER", 5, 0
     ; TODO: Implement the outer interpreter logic here
+    dd xtToIn , xtFetch, xtRTo                  ; Save >IN on return stack
+    dd xtToIn , xtStore                         ; Set >IN to the input string
+.oLoop:
+    dd xtWord, xtJmpz, .oXit
+    dd xtLit, WORD_START, xtNumQ, xtJmpz, .isWordQ
+        dd xtLit, '.', xtEmit, xtPDot, xtLit, '.', xtEmit
+        dd xtJmp, .oLoop
+.isWordQ:
+    dd xtLit, WORD_START, xtFind, xtQDup, xtJmpz, .notFound
+        dd xtLit, WORD_START, xtzType, xtFound, xtJmp, .oLoop
+.notFound:
+    dd xtLit, WORD_START, xtzType, xtLit, oErr, xtzType, xtSpace
+    dd xtJmp, .oLoop
+.oXit:
+    dd xtRFrom, xtToIn, xtStore                  ; Restore >IN
     dd xtRet
 
 ; ============================================================================
@@ -666,10 +710,11 @@ LSTK:  dd 32 dup(0)             ; Local stack (32 cells)
 LSP:   dd LSTK                  ; Local stack pointer (grows UP)
 Hello: db "Hello.", 0
 Bye:   db "Bye.", 0
+oErr:  db "??", 0
 
 FORTH_SRC: db ": test1 123 ;", 10
            db ": test2 -00045 ;", 10
-           db ": cell 4 ;", 10
+           db " WORDS : CELL 4 ;", 10
            db 0
 
 ; ============================================================================
@@ -678,12 +723,7 @@ FORTH_SRC: db ": test1 123 ;", 10
 TheROM:
     dd xtLit, Hello, xtzType, xtCR
     dd xtWords, xtCR
-    dd xtLit, FORTH_SRC, xtToIn, xtStore
-.wl:
-    dd xtWord, xtJmpz, .wle
-    dd xtLit, WORD_START, xtzType, xtSpace
-    dd xtJmp, .wl
-.wle:
-    dd xtCR, xtTests
+    dd xtTests
+    dd xtLit, FORTH_SRC, xtOuter
     dd xtLit, Bye, xtzType, xtCR
     dd xtRet

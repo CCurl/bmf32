@@ -598,7 +598,7 @@ dictEntry lspAddr, "(LSP)", 5, 0
     dPush LSP
     NEXT
 
-dictEntry zType, "ZTYPE", 5, 0
+dictEntry ZType, "ZTYPE", 5, 0
     push IIP                ; save IIP
     dPop ESI
     call vga_ser_write
@@ -656,7 +656,7 @@ dictEntry CR, "CR", 2, 0
 dictEntry PDot, "(.)", 3, 0
     dd xtiToA
     dd xtDrop             ; Drop the length of the string
-    dd xtzType
+    dd xtZType
     dd xtRet
 
 dictEntry Dot, ".", 1, 0
@@ -679,9 +679,10 @@ dictEntry Outer, "OUTER", 5, 0
         dd xtJmp, .oLoop
 .isWordQ:
     dd xtLit, WORD_START, xtFind, xtQDup, xtJmpz, .notFound
-        dd xtLit, WORD_START, xtzType, xtFound, xtJmp, .oLoop
+        dd xtLit, WORD_START, xtZType, xtFound
+        dd xtJmp, .oLoop
 .notFound:
-    dd xtLit, WORD_START, xtzType, xtLit, oErr, xtzType, xtSpace
+    dd xtLit, WORD_START, xtZType, xtLit, oErr, xtZType, xtSpace
     dd xtJmp, .oLoop
 .oXit:
     dd xtRFrom, xtToIn, xtStore                  ; Restore >IN
@@ -721,9 +722,9 @@ FORTH_SRC: db ": test1 123 ;", 10
 ; Init / Run
 ; ============================================================================
 TheROM:
-    dd xtLit, Hello, xtzType, xtCR
+    dd xtLit, Hello, xtZType, xtCR
     dd xtWords, xtCR
     dd xtTests
     dd xtLit, FORTH_SRC, xtOuter
-    dd xtLit, Bye, xtzType, xtCR
+    dd xtLit, Bye, xtZType, xtCR
     dd xtRet

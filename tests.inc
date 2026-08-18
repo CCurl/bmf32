@@ -2,10 +2,10 @@
 ; Tests
 ; ============================================================================
 dictEntry Found, "FOUND", 5, 0
-    dd xtLit, msgFF, xtzType, xtRet
+    dd xtLit, msgFF, xtZType, xtRet
 
 dictEntry NotFound, "NOT-FOUND", 9, 0
-    dd xtLit, msgNF, xtzType, xtRet
+    dd xtLit, msgNF, xtZType, xtRet
 
 ;    : test1 1 LIT 16 CELLS + EMIT ;
 dictEntry Test1, "TEST1", 5, 0
@@ -38,10 +38,10 @@ dictEntry Test5, "TEST5", 5, 0
     dd xtRet
 
 dictEntry TestHW, "TEST-HW", 7, 0
-    dd xtLit, helloWorld, xtzType, xtCR, xtRet
+    dd xtLit, helloWorld, xtZType, xtCR, xtRet
 
 dictEntry TDS, "TDS", 3, 0
-    dd xtDup, xtzType, xtFind, xtJmpz, .nf1
+    dd xtDup, xtZType, xtFind, xtJmpz, .nf1
         dd xtFound, xtRet
 .nf1:
     dd xtNotFound, xtRet

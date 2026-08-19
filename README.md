@@ -69,7 +69,7 @@ make run      # Build and run in QEMU window
             │ Graphics (HW)               │
 0x000A0000  ├─────────────────────────────┤
             │ User Dict Start 0x00018900  │ 541 KB
-            │ Current word    0x00018500  │   1 KB
+            │ Current word    0x00018800  │   1 KB
             │ TIB             0x00018400  │   1 KB
             │ Data Stack      0x00018400  │   1 KB (grows down)
             │ Return Stack    0x00018000  │  16 KB (grown down)

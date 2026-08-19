@@ -1,6 +1,15 @@
 ; ============================================================================
 ; Tests
 ; ============================================================================
+dictEntry Test7, "TEST7", 5, 0
+    dd xtLit, 10, xtFor, xtI, xtDot, xtNext
+    dd xtRet
+
+dictEntry Test6, "TEST6", 5, 0
+    dd xtLit, 123, xtTTo, xtLit, 654, xtLTo
+    dd xtLFrom, xtTFrom, xtAdd, xtDot
+    dd xtRet
+
 dictEntry Found, "FOUND", 5, 0
     dd xtLit, msgFF, xtZType, xtRet
 
@@ -26,7 +35,7 @@ dictEntry Test3, "TEST3", 5, 0
 
 ;    : test4  ;
 dictEntry Test4, "TEST4", 5, 0
-    dd xtLit, 222332, xtOnePlus, xtxStore, xtxFetch, xtDot
+    dd xtLit, 222332, xtOnePlus, xtXStore, xtXFetch, xtDot
     dd xtRet
 
 ;    : test5 'N' SWAP IF DROP 'Y' THEN EMIT ;
@@ -59,6 +68,8 @@ dictEntry Tests, "TESTS", 5, 0
     dd xtTestHW
     dd xtTest1
     dd xtTest2
+    dd xtTest6
+    dd xtTest7
     dd xtLit, 1, xtTest3
     dd xtLit, 0, xtTest3
     dd xtSpace

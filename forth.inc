@@ -8,41 +8,25 @@
 ;      - ESP is the return stack pointer (grows downward)
 
 CELL_SZ equ 4
-TOS equ EAX
-NOS equ [EBP]  ; Next on stack
-IIP equ ESI
-R1  equ EBX
-R2  equ ECX
-R3  equ EDX
-R4  equ EDI
+TOS equ EAX     ; Top of stack
+NOS equ [EBP]   ; Next on stack
+IIP equ ESI     ; Inner instruction pointer
+R1  equ EBX     ; General purpose register 1
+R2  equ ECX     ; General purpose register 2
+R3  equ EDX     ; General purpose register 3
+R4  equ EDI     ; General purpose register 4
 
 ; ============================================================================
-; SECTION: MACROS
-; ============================================================================
-
-macro getTOS regVal {
-    mov regVal, TOS
-}
-
-macro setTOS regVal {
-    mov TOS, regVal
-}
-
-macro getNOS regVal {
-    mov regVal, NOS
-}
-
-macro setNOS regVal {
-    mov NOS, regVal
-}
+macro getTOS regVal { mov regVal, TOS }
+macro setTOS regVal { mov TOS, regVal }
+macro getNOS regVal { mov regVal, NOS }
+macro setNOS regVal { mov NOS, regVal }
+macro dDrop { call fDrop }
+macro NEXT { jmp inner }
 
 macro dPush regVal {
     call fDup
     mov TOS, regVal
-}
-
-macro dDrop {
-    call fDrop
 }
 
 macro dPop regMem {
@@ -50,10 +34,7 @@ macro dPop regMem {
     call fDrop
 }
 
-macro NEXT {
-    jmp inner
-}
-
+; ============================================================================
 ; Create a dictionary entry (link, xt, flags, len, name, null, code/words)
 last_de equ 0
 macro dictEntry nameId, name, len, flags {
@@ -75,9 +56,10 @@ run_forth:
     mov DWORD [HERE], DICT_START   ; Set HERE to the start of the dictionary
     mov DWORD [BASE], 10           ; Set BASE to 10
     mov DWORD [STATE], 0           ; Set STATE to interpreting mode
-    mov DWORD [LSP], LSTK          ; Set LSP to the start of the return stack
+    mov DWORD [LSP], 0             ; Set LSP to the start of the return stack
+    mov DWORD [TSP], 0             ; Set TSP to the start of the temp stack
     mov IIP, TheROM
-    jmp inner
+    NEXT
 
 ; ============================================================================
 ; Forth inner interpreter
@@ -104,15 +86,6 @@ fDrop:
     mov EAX, DWORD [ebp]
     lea ebp, [ebp + CELL_SZ]
     ret
-
-; SPACE primitive - output a space character
-; ( -- )
-dictEntry Space, "SPACE", 5, 0
-    push EAX
-    mov EAX, 32
-    call vga_ser_emit
-    pop EAX
-    NEXT
 
 ; EXIT primitive - Push literal onto the stack
 ; ( -- )
@@ -346,7 +319,7 @@ dictEntry Word, "WORD", 4, 0
 .done:
     mov [TO_IN], R1
     mov BYTE [R4+R2], 0     ; NULL terminate the word
-    dPush R2
+    dPush R2                ; Length
     NEXT
 
 ; S-LEN primitive - Get string length
@@ -528,70 +501,94 @@ zVal:  dd 0
 
 ; X@ primitive - Fetch X
 ; ( -- value )
-dictEntry xFetch, "X@", 2, 0
+dictEntry XFetch, "X@", 2, 0
     dPush [xVal]
     NEXT
 
 ; X! primitive - Store X
 ; ( value -- )
-dictEntry xStore, "X!", 2, 0
+dictEntry XStore, "X!", 2, 0
     dPop [xVal]
     NEXT
 
 ; Y@ primitive - Fetch Y
 ; ( -- value )
-dictEntry yFetch, "Y@", 2, 0        
+dictEntry YFetch, "Y@", 2, 0
     dPush [yVal]
     NEXT
 
 ; Y! primitive - Store Y
 ; ( value -- )
-dictEntry yStore, "Y!", 2, 0
+dictEntry YStore, "Y!", 2, 0
     dPop [yVal]
     NEXT
 
 ; Z@ primitive - Fetch Z
 ; ( -- value )
-dictEntry zFetch, "Z@", 2, 0
+dictEntry ZFetch, "Z@", 2, 0
     dPush [zVal]
     NEXT
 
 ; Z! primitive - Store Z
 ; ( value -- )
-dictEntry zStore, "Z!", 2, 0
+dictEntry ZStore, "Z!", 2, 0
     dPop [zVal]
+    NEXT
+
+; >T primitive - Move to temp stack
+; ( value -- )
+dictEntry TTo, ">T", 2, 0
+    dPop R2
+    mov R1, [TSP]
+    inc R1
+    and R1, 0x3F
+    mov [TSP], R1
+    mov [TSTK+R1*4], R2
+    NEXT
+
+; T@ primitive - Fetch temp TOS
+; ( -- value )
+dictEntry TFetch, "T@", 2, 0
+    mov R1, [TSP]
+    dPush [TSTK+R1*4]
+    NEXT
+
+; T> primitive - Move from temp stack
+; ( -- value )
+dictEntry TFrom, "T>", 2, 0
+    mov R1, [TSP]
+    dPush [TSTK+R1*4]
+    dec R1
+    and R1, 0x3F
+    mov [TSP], R1
     NEXT
 
 ; >L primitive - Move to local stack
 ; ( value -- )
-dictEntry toLStk, ">L", 2, 0
-    add DWORD [LSP], CELL_SZ
+dictEntry LTo, ">L", 2, 0
+    dPop R2
     mov R1, [LSP]
-    mov [R1], TOS
-    call fDrop
+    inc R1
+    and R1, 0x3F
+    mov [LSP], R1
+    mov [LSTK+R1*4], R2
     NEXT
 
 ; L@ primitive - Fetch from local stack
 ; ( -- value )
-dictEntry atLStk, "L@", 2, 0
+dictEntry LFetch, "L@", 2, 0
     mov R1, [LSP]
-    dPush [R1]
+    dPush [LSTK+R1*4]
     NEXT
 
 ; L> primitive - Move from local stack
 ; ( -- value )
-dictEntry fromLStk, "L>", 2, 0
+dictEntry LFrom, "L>", 2, 0
     mov R1, [LSP]
-    mov R2, [R1]
-    dPush R2
-    cmp R1, LSTK
-    jna .under
-    sub R1, CELL_SZ
+    dPush [LSTK+R1*4]
+    dec R1
+    and R1, 0x3F
     mov [LSP], R1
-    NEXT
-.under:
-    mov DWORD [LSP], LSTK
-    setTOS 0
     NEXT
 
 dictEntry lspAddr, "(LSP)", 5, 0
@@ -612,6 +609,48 @@ dictEntry iToA, "I>A", 3, 0
     call iToA
     setTOS EDI
     dPush ECX
+    NEXT
+
+; FOR primitive - Begin a FOR loop
+; ( limit -- )
+dictEntry For, "FOR", 3, 0
+    dPop R1                  ; Pop the loop count from the data stack
+    mov R2, [LSP]            ; Update the loop stack pointer
+    add R2, 3                ; Increment the loop stack pointer
+    mov [LSP], R2            ; Get the current loop stack pointer
+    lea R3, [LSTK+R2*4]      ; Get the address of the loop stack entry
+    mov DWORD [R3], 0        ; Initialize the loop
+    mov DWORD [R3+4], R1     ; Store the loop count
+    mov DWORD [R3+8], IIP    ; Store the return address (IIP) for the loop
+    NEXT
+
+; I primitive - Get the current loop index
+; ( -- n )
+dictEntry I, "I", 1, 0
+    mov R1, [LSP]            ; Get the current loop stack pointer
+    lea R2, [LSTK+R1*4]      ; Get the address of the loop stack entry
+    mov R3, DWORD [R2]       ; Get the current loop index
+    dPush R3                 ; Push the loop index onto the data stack
+    NEXT
+
+; NEXT primitive - Continue a FOR loop
+; ( -- )
+dictEntry Next, "NEXT", 4, 0
+    mov R1, [LSP]            ; Get the current loop stack pointer
+    lea R2, [LSTK+R1*4]      ; Get the address of the loop stack entry
+    mov R3, DWORD [R2]       ; Get the current loop index
+    mov R4, DWORD [R2+4]     ; Get the current loop limit
+    inc R3                   ; Increment the loop index
+    cmp R3, R4               ; Compare the loop index with the limit
+    jb .loop_continue        ; If less than limit, continue the loop
+                             ; Loop is done, pop the loop stack
+    sub R1, 3                ; Decrement the loop stack pointer
+    mov [LSP], R1            ; Update the loop stack pointer
+    NEXT
+.loop_continue:
+    mov DWORD [R2], R3       ; Update the loop index in the loop stack
+    mov IIP, [R2+8]          ; Jump to the start of the loop
+.loop_exit:
     NEXT
 
 primsEnd:
@@ -650,8 +689,10 @@ dictEntry here, "(H)", 4, 0
 ; Other FORTH words
 ; ============================================================================
 dictEntry CR, "CR", 2, 0
-    dd xtLit, 0x0A, xtEmit
-    dd xtRet
+    dd xtLit, 0x0A, xtEmit, xtRet
+
+dictEntry Space, "SPACE", 5, 0
+    dd xtLit, 0x20, xtEmit, xtRet
 
 dictEntry PDot, "(.)", 3, 0
     dd xtiToA
@@ -660,9 +701,7 @@ dictEntry PDot, "(.)", 3, 0
     dd xtRet
 
 dictEntry Dot, ".", 1, 0
-    dd xtPDot
-    dd xtSpace            ; Print a space after the number
-    dd xtRet
+    dd xtPDot, xtSpace, xtRet
 
 ; ============================================================================
 ; The outer interpreter
@@ -670,8 +709,8 @@ dictEntry Dot, ".", 1, 0
 ; : outer ( str -- )
 dictEntry Outer, "OUTER", 5, 0
     ; TODO: Implement the outer interpreter logic here
-    dd xtToIn , xtFetch, xtRTo                  ; Save >IN on return stack
-    dd xtToIn , xtStore                         ; Set >IN to the input string
+    dd xtToIn, xtFetch, xtRTo               ; Save >IN on return stack
+    dd xtToIn, xtStore                      ; Set >IN to the input string
 .oLoop:
     dd xtWord, xtJmpz, .oXit
     dd xtLit, WORD_START, xtNumQ, xtJmpz, .isWordQ
@@ -685,7 +724,7 @@ dictEntry Outer, "OUTER", 5, 0
     dd xtLit, WORD_START, xtZType, xtLit, oErr, xtZType, xtSpace
     dd xtJmp, .oLoop
 .oXit:
-    dd xtRFrom, xtToIn, xtStore                  ; Restore >IN
+    dd xtRFrom, xtToIn, xtStore             ; Restore >IN
     dd xtRet
 
 ; ============================================================================
@@ -707,11 +746,14 @@ LAST:  dd last_de               ; Most recent word (0 initially, will point to l
 BASE:  dd 10                    ; Number base (default 10)
 STATE: dd 0                     ; FORTH state (0 = interpreting, 1 = compiling)
 TO_IN: dd 0                     ; >IN - address of current input stream
-LSTK:  dd 32 dup(0)             ; Local stack (32 cells)
-LSP:   dd LSTK                  ; Local stack pointer (grows UP)
+LSTK:  dd 64 dup(0)             ; Loop stack (64 cells)
+LSP:   dd 0                     ; Loop stack pointer (circular)
+TSTK:  dd 64 dup(0)             ; Temp stack (64 cells)
+TSP:   dd 0                     ; Temp stack pointer (circular)
 Hello: db "Hello.", 0
 Bye:   db "Bye.", 0
 oErr:  db "??", 0
+IVal:  dd 0
 
 FORTH_SRC: db ": test1 123 ;", 10
            db ": test2 -00045 ;", 10

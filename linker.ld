@@ -1,32 +1,28 @@
-/* Linker script for 32-bit bare metal kernel (pure assembly) */
+/* Linker script for bare metal OS */
 
-ENTRY(_start)
+ENTRY(kernel_main)
 
 SECTIONS
 {
-    . = 0x00010000; /* 32 KB pocket below 0x00100000 */
-    
-    .text ALIGN(0x1000) : {
-        *(.multiboot)
-        *(.text*)
+    /* Start at 1MB (standard location for kernel) */
+    . = 0x100000;
+
+    /* Flat kernel image: all sections are RWX */
+    .text : {
+        *(.multiboot)  /* Multiboot header must be first */
+        *(.text)
     }
-    
-    .rodata ALIGN(0x1000) : {
-        *(.rodata*)
+
+    .rodata : {
+        *(.rodata)
     }
-    
-    .data ALIGN(0x1000) : {
-        *(.data*)
+
+    .data : {
+        *(.data)
     }
-    
-    .bss ALIGN(0x1000) : {
+
+    .bss : {
+        *(.bss)
         *(COMMON)
-        *(.bss*)
-    }
-    
-    /DISCARD/ : {
-        *(.note.GNU-stack)
-        *(.gnu_debuglink)
-        *(.gnu_debugaltlink)
     }
 }

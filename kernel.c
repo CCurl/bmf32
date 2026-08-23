@@ -261,7 +261,7 @@ static char keyboard_translate_scancode(uint8_t scancode) {
 /* Timer interrupt handler */
 void __attribute__((interrupt)) timer_handler(void *frame) {
     (void)frame;
-    system_ticks++;
+    system_ticks += 20;  /* Increment ticks by 20 for 50Hz */
     asm volatile("outb %0, %1" : : "a"((uint8_t)0x20), "Nd"(PIC_MASTER_CMD));
 }
 
@@ -509,6 +509,11 @@ void vga_putchar(char c) {
         cursor_y++;
     } else if (c == '\r') {
         cursor_x = 0;
+    } else if (c == '\t') {
+        ++cursor_x;
+        while (cursor_x < VGA_COLS && (cursor_x % 8 != 0)) {
+            ++cursor_x;
+        }
     } else {
         vga[cursor_y * VGA_COLS + cursor_x] = ((uint16_t)color << 8) | (uint8_t)c;
         cursor_x++;
@@ -566,21 +571,18 @@ void kernel_main(void) {
     gdt_init();
     idt_init();
     pic_init();
-    pit_init(1000);
+    pit_init(50);
     
     /* Register interrupt handlers */
     register_interrupt_handler(32, (void (*)(void))timer_handler);  /* IRQ0 = vector 32 */
     register_interrupt_handler(33, (void (*)(void))keyboard_handler);  /* IRQ1 = vector 33 */
     
-    /* Display welcome message */
-    vga_puts("=== Bare Metal OS ===\n");
-    // vga_puts("Kernel loaded successfully!\n\n");
-    
-    serial_puts("=== Bare Metal OS ===\n");
-    // serial_puts("Kernel loaded successfully!\n\n");
-    
     /* Enable interrupts */
     sti();
 
+    /* Display welcome message */
+    // vga_puts("=== Bare Metal OS ===\n");
+    // serial_puts("=== Bare Metal OS ===\n");
+    
     fwcRun();  /* Start the Forth-like interpreter */
 }

@@ -1,13 +1,13 @@
 // A Tachyon inspired system, MIT license, (c) 2025 Chris Curl
 
-#ifndef __QWC_H__
-
+#ifndef __FWC_VM_H__
+#define __FWC_VM_H__
 #include <stddef.h>
 #include <stdint.h>
 
 typedef unsigned int uint;
 
-#define VERSION         20260512
+#define VERSION         20260823
 
 #define LIT_MASK      0x40000000
 #define LIT_BITS      0x3FFFFFFF
@@ -17,7 +17,7 @@ typedef unsigned int uint;
 #define ucell           uint32_t
 
 #define byte             uint8_t
-#define MEM_SZ         14 * 1024 * 1024  /* 14MB */
+#define MEM_SZ         14*1024*1024  /* 14MB */
 #define STK_SZ                63
 #define IMMED               0x80
 #define INLINE              0x40
@@ -51,6 +51,10 @@ extern int  key();
 extern int  qKey();
 extern cell timer();
 extern void ms(cell sleepForMS);
+extern int strlen(const char *a);
+extern char *strcpy(char *a, const char *b);
+extern void *memcpy(void *dest, const void *src, size_t n);
+extern void *memmove(void *dest, const void *src, size_t n);
 extern int strEqI(const char *a, const char *b);
 
-#endif //  __QWC_H__
+#endif //  __FWC_VM_H__

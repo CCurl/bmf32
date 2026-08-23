@@ -1,6 +1,4 @@
 // A Tachyon inspired system, MIT license, (c) 2026 Chris Curl
-//#include <stddef.h>
-// #include <string.h>
 #include "fwc-vm.h"
 
 #define X1(op, name, theCode) op,

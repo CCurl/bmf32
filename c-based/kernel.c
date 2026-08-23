@@ -67,6 +67,10 @@ static char keyboard_buffer[KEYBOARD_BUFFER_SIZE];
 static int keyboard_head = 0;
 static int keyboard_tail = 0;
 
+/* Large data buffer - 3.8MB */
+#define LARGE_BUFFER_SIZE 3981312  /* 3.8MB */
+static uint8_t large_buffer[LARGE_BUFFER_SIZE];
+
 /* Helper function to write a byte to port */
 static inline void outb(uint16_t port, uint8_t val) {
     asm volatile("outb %0, %1" : : "a"(val), "Nd"(port));

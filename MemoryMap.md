@@ -58,8 +58,10 @@ The current kernel includes:
 - GDT and IDT setup
 - PIC initialization
 - keyboard interrupt handling
-- timer interrupt handling via the PIT
+- timer interrupt handling via the PIT at 50 Hz
 - a simple `system_ticks` counter used by the VM `timer` primitive
+
+At 50 Hz, each tick is effectively 20 ms, so `system_ticks` is advanced in coarse steps rather than every 1 ms.
 
 This means the current system is no longer a purely passive boot-only kernel; it includes basic interrupt-driven behavior.
 
@@ -80,6 +82,7 @@ This system currently follows a flat bare-metal design:
 
 - the kernel is loaded at `0x100000`
 - the image is intentionally a single `RWX` load segment
+- the linked ELF is the complete OS image for this project; there is no separate `boot.bin`
 - hardware devices are addressed via fixed memory and port locations
 - interrupts are active for keyboard and timer support
 - the Forth VM runs inside the same minimal kernel environment

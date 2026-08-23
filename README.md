@@ -6,13 +6,14 @@ A minimal bare-metal x86 kernel written in pure C and booted under QEMU. It incl
 
 - **Pure C kernel**: written without assembly for the main runtime logic
 - **Multiboot1 support**: kernel entry is recognized by a multiboot header
+- **Single-kernel flat image**: the linked ELF is the OS image for this project
 - **VGA text mode**: console output with scrolling support
 - **Serial output**: debug messages through COM1
 - **Interrupts**: GDT, IDT, PIC, keyboard, and timer handling
 - **Keyboard input**: buffered PS/2 keyboard support
-- **Tick counter**: basic PIT-driven timer used by the VM
+- **Tick counter**: PIT-driven 50 Hz timer used by the VM and timing helpers
 - **FWC VM**: the in-kernel Forth-style interpreter is compiled and linked
-- **QEMU compatible**: boots directly with the `-kernel` flag
+- **QEMU compatible**: boots directly with the `-kernel` flag or via the generated ISO
 
 ## Architecture
 
@@ -46,7 +47,7 @@ sudo dnf install gcc gcc-multilib glibc-devel.i686 qemu-system-x86 grub2-tools
 make
 ```
 
-This produces `build/kernel.elf`, the bootable kernel image.
+This produces `build/kernel.elf`, which is the complete kernel/OS image for this project. There is no separate `boot.bin` in this build flow.
 
 ## Running
 
@@ -123,6 +124,7 @@ Defines the memory layout:
 - **No full standard library**: the kernel is built with `-ffreestanding`
 - **No dynamic memory**: the project is still intentionally minimal
 - **Interrupts are active**: GDT/IDT, keyboard, and timer are implemented
+- **Timer rate**: the PIT is configured for 50 Hz, so `system_ticks` advances at roughly 20 ms per tick
 - **The VM is linked into the kernel**: the build includes [fwc-vm.c](fwc-vm.c)
 
 ## Troubleshooting

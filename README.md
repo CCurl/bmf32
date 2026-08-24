@@ -12,26 +12,30 @@ A minimal bare-metal x86 kernel written in pure C and booted under QEMU. It incl
 - **Interrupts**: GDT, IDT, PIC, keyboard, and timer handling
 - **Keyboard input**: buffered PS/2 keyboard support
 - **Tick counter**: PIT-driven 50 Hz timer used by the VM and timing helpers
-- **FWC VM**: the in-kernel Forth-style interpreter is compiled and linked
+- **DWC VM**: the in-kernel Forth-style interpreter is compiled and linked
 - **QEMU compatible**: boots directly with the `-kernel` flag or via the generated ISO
 
 ## Architecture
 
 ```text
+block-10.fth    - translates boot.f -> boot.h using fwc
+boot.f          - Forth source code for base forth system
+dwc-vm.c        - Forth-style VM implementation
+dwc-vm.h        - VM interface and memory layout declarations
 kernel.c        - kernel core: VGA, serial, PIC, keyboard, timer, IRQ setup
-fwc-vm.c        - Forth-style VM implementation
-fwc-vm.h        - VM interface and memory layout declarations
-os.c            - OS/runtime support layer and freestanding compatibility helpers
+kernel.h        - extern functions for kernel.c
+LICENSE         - MIT license
 linker.ld       - memory layout and ELF placement
 Makefile        - build system
-run.sh          - convenience runner
+os.c            - OS/runtime support layer and freestanding compatibility helpers
+README.md       - this file
 ```
 
 ## Building
 
 ### Prerequisites
 
-You will need a 32-bit toolchain and QEMU.
+You will need fwc, a 32-bit toolchain and QEMU.
 
 ```bash
 # Ubuntu/Debian
@@ -95,13 +99,13 @@ The kernel implements:
 - **VGA text-mode console**
 - **kernel_main()** entry point
 
-### fwc-vm.c and fwc-vm.h
+### dwc-vm.c and dwc-vm.h
 
 This is the Forth-like VM used by the project. It includes:
 
 - a dictionary and primitive table
 - stack operations and compiled words
-- VM entry points like `outer()`, `inner()`, and `fwcInit()`
+- VM entry points like `outer()`, `inner()`, and `dwcInit()`
 - primitive hooks for `emit`, `ztype`, `key`, `key?`, and `timer`
 
 ### os.c
@@ -125,7 +129,7 @@ Defines the memory layout:
 - **No dynamic memory**: the project is still intentionally minimal
 - **Interrupts are active**: GDT/IDT, keyboard, and timer are implemented
 - **Timer rate**: the PIT is configured for 50 Hz, so `system_ticks` advances at roughly 20 ms per tick
-- **The VM is linked into the kernel**: the build includes [fwc-vm.c](fwc-vm.c)
+- **The VM is linked into the kernel**: the build includes [dwc-vm.c](dwc-vm.c)
 
 ## Troubleshooting
 

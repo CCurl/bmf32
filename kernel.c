@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "kernel.h"
-#include "fwc-vm.h"
+#include "dwc-vm.h"
 
 /* Multiboot1 Header Definitions */
 #define MULTIBOOT_MAGIC       0x1BADB002
@@ -584,5 +584,5 @@ void kernel_main(void) {
     // vga_puts("=== Bare Metal OS ===\n");
     // serial_puts("=== Bare Metal OS ===\n");
     
-    fwcRun();  /* Start the Forth-like interpreter */
+    dwcRun();  /* Start the Forth-like interpreter */
 }

@@ -1,7 +1,7 @@
 // A Tachyon inspired system, MIT license, (c) 2025 Chris Curl
 
-#ifndef __FWC_VM_H__
-#define __FWC_VM_H__
+#ifndef __DWC_VM_H__
+#define __DWC_VM_H__
 #include <stddef.h>
 #include <stdint.h>
 
@@ -32,19 +32,19 @@ enum { INTERPRET=0, COMPILE=1, BYE=999 };
 typedef struct { ucell xt; byte fl; byte ln; char nm[NAME_SZ]; } DE_T;
 typedef struct { char *name; ucell value; } NVP_T;
 
-// These are defined by fwc-vm.c
+// These are defined by dwc-vm.c
 extern void inner(ucell start);
 extern void outer(const char *src);
 extern void addLit(const char *name, cell val);
-extern void fwcInit();
-extern void fwcRun();
+extern void dwcInit();
+extern void dwcRun();
 extern int nextWord();
 extern DE_T *addToDict(char *w);
 extern cell state;
 extern ucell outputFp;
 extern char mem[];
 
-// fwc-vm.c needs these to be defined
+// dwc-vm.c needs these to be defined
 extern void zType(const char *str);
 extern void emit(const char ch);
 extern int  key();
@@ -57,4 +57,4 @@ extern void *memcpy(void *dest, const void *src, size_t n);
 extern void *memmove(void *dest, const void *src, size_t n);
 extern int strEqI(const char *a, const char *b);
 
-#endif //  __FWC_VM_H__
+#endif //  __DWC_VM_H__

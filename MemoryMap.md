@@ -44,7 +44,7 @@ These addresses are outside the ELF image and are treated as direct hardware int
 
 ## 4. Runtime and VM memory
 
-The OS support layer in [os.c](os.c) owns runtime-side storage and compatibility glue for freestanding code. The Forth VM in [fwc-vm.c](fwc-vm.c) and [fwc-vm.h](fwc-vm.h) use a flat in-memory dictionary and stack region, and the OS layer provides the missing freestanding helpers such as string operations and keyboard/timer primitives.
+The OS support layer in [os.c](os.c) owns runtime-side storage and compatibility glue for freestanding code. The Forth VM in [dwc-vm.c](dwc-vm.c) and [dwc-vm.h](dwc-vm.h) use a flat in-memory dictionary and stack region, and the OS layer provides the missing freestanding helpers such as string operations and keyboard/timer primitives.
 
 This separates:
 

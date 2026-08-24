@@ -1,8 +1,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "kernel.h"
-#include "fwc-vm.h"
-#include "fwc-src.h"
+#include "dwc-vm.h"
+#include "boot.h"
 
 char tib[256];
 void sys_load();
@@ -16,9 +16,9 @@ void repl() {
     outer(tib);
 }
 
-void fwcRun() {
-    fwcInit();
-    outer(FWC_SRC);
+void dwcRun() {
+    dwcInit();
+    outer(DWC_SRC);
     outer(".\" Bare Metal Forth v\" .version cr");
     outer(".\" Hello\" cr");
     while (1) { repl(); }

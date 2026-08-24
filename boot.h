@@ -1,5 +1,4 @@
-#define FWC_SRC " \
-: last (l) @ ; \
+#define DWC_SRC ": last (l) @ ; \
 : here (h) @ ; \
 : inline    ( -- ) $40 last cell + c! ; \
 : immediate ( -- ) $80 last cell + c! ; \
@@ -38,7 +37,7 @@
 : (val) ( -- ) here 2 - ->code const ; \
 : kb ( n--m ) 1024 * ; \
 : mb ( n--m ) kb kb ; \
-\
+ \
 mem mem-sz + const dict-end \
 32 ->code const (vh) \
 64 kb ->code const vars \
@@ -165,7 +164,7 @@ cell var t4   cell var t5   cell var t6 \
 : s-scat ( src dst--dst ) swap s-cat ; \
 : s-eqn  ( s1 s2 n--f ) +L3 z@ for c@x+ c@y+ = if0 -L 0 unloop exit then next -L 1 ; \
 : s-eq   ( s1 s2--f ) dup s-len 1+ s-eqn ; \
-\
+ \
 : .version ( -- ) version <# # # #. # # #. # # #s #> ztype ; \
 : bm ( mb -- ) mb timer swap for next timer swap - . ; \
  \

@@ -1,231 +1,172 @@
-# A 32-bit Bare Metal FORTH OS/Kernel
+# Bare Metal OS - QEMU
 
-A minimal 32-bit x86 bare metal operating system kernel written entirely in **pure assembly (FASM)**.<br/>
-This is intended to be a foundation for a subroutine threaded FORTH system.<br/>
-Currently runs under QEMU (the 32-bit x86 emulator) using the `-kernel` option.
+A minimal bare-metal x86 kernel written in pure C and booted under QEMU. It includes a simple text-mode VGA console, serial output, interrupt-driven keyboard input, a PIT-based tick counter, and a small Forth-like VM for experimentation.
 
 ## Features
 
-- **32-bit x86 protected mode**: Full x86-32 architecture support
-- **Pure Assembly (FASM)**: Only dependency is on an assembler
-- **Tiny kernel**: 6 KB executable in a 32 KB pocket (0x00010000-0x00017FFF)
-- **VGA text console**: 80×25 text mode output (0xB8000)
-- **Serial output**: COM1 (0x3F8) for debugging/secondary output
-- **Interrupt system**: IDT + 8259 PIC with PS/2 keyboard handler
-- **PS/2 keyboard**: Ring buffer for scancode capture (IRQ1/INT 0x21)
-- **Direct kernel loading**: Boots with QEMU `-kernel` flag
+- **Pure C kernel**: written without assembly for the main runtime logic
+- **Multiboot1 support**: kernel entry is recognized by a multiboot header
+- **Single-kernel flat image**: the linked ELF is the OS image for this project
+- **VGA text mode**: console output with scrolling support
+- **Serial output**: debug messages through COM1
+- **Interrupts**: GDT, IDT, PIC, keyboard, and timer handling
+- **Keyboard input**: buffered PS/2 keyboard support
+- **Tick counter**: PIT-driven 50 Hz timer used by the VM and timing helpers
+- **DWC VM**: the in-kernel Forth-style interpreter is compiled and linked
+- **QEMU compatible**: boots directly with the `-kernel` flag or via the generated ISO
 
-## Quick Start
+## Architecture
 
-```bash
-# Prerequisites
-sudo apt-get install fasm qemu qemu-system-x86
-
-# Clone the repository
-git clone https://github.com/CCurl/bmf32.git
-
-# Build and run
-make run
-```
-
-QEMU window will open. You'll see boot messages. PS/2 keyboard input is buffered and ready for FORTH interpreter.
-
-## Project Structure
-
-```
-.
-├── kernel.asm       # Bootloader + kernel + drivers
-├── util.inc         # Utility functions
-├── forth.inc        # The Forth system
-├── tests.inc        # Tests (temporary)
-├── linker.ld        # Memory layout script
-├── Makefile         # Build automation
-├── LICENSE          # License (MIT)
-└── README.md        # This file
+```text
+block-10.fth    - translates boot.f -> boot.h using fwc
+boot.f          - Forth source code for base forth system
+dwc-vm.c        - Forth-style VM implementation
+dwc-vm.h        - VM interface and memory layout declarations
+kernel.c        - kernel core: VGA, serial, PIC, keyboard, timer, IRQ setup
+kernel.h        - extern functions for kernel.c
+LICENSE         - MIT license
+linker.ld       - memory layout and ELF placement
+Makefile        - build system
+os.c            - OS/runtime support layer and freestanding compatibility helpers
+README.md       - this file
 ```
 
 ## Building
 
+### Prerequisites
+
+You will need fwc, a 32-bit toolchain and QEMU.
+
 ```bash
-make          # Full build
-make clean    # Remove artifacts
-make run      # Build and run in QEMU window
+# Ubuntu/Debian
+sudo apt-get install build-essential qemu-system-x86 gcc-multilib grub-pc-bin
+
+# Fedora/RHEL
+sudo dnf install gcc gcc-multilib glibc-devel.i686 qemu-system-x86 grub2-tools
 ```
 
-**Toolchain:**
-- FASM 1.73.30+ (assembler)
-- GNU ld (linker, elf_i386 format)
+### Build the kernel
 
-## Memory Layout (16 MB)
-
-```
-0x01000000  ┌─────────────────────────────┐
-            │ Free                        │ 15 MB free
-0x00100000  ├─────────────────────────────┤
-            │ ROM / System                │
-0x000C0000  ├─────────────────────────────┤
-            │ VGA text (HW, 80x25x2)      │   4 KB
-0x000B8000  ├─────────────────────────────┤
-            │ Graphics (HW)               │
-0x000A0000  ├─────────────────────────────┤
-            │ User Dict Start 0x00018900  │ 541 KB
-            │ Current word    0x00018500  │   1 KB
-            │ TIB             0x00018400  │   1 KB
-            │ Data Stack      0x00018400  │   1 KB (grows down)
-            │ Return Stack    0x00018000  │  16 KB (grown down)
-            │ Kernel          0x00010000  │  16 KB
-0x00010000  ├─────────────────────────────┤
-            │ BIOS / System               │
-0x00000000  └─────────────────────────────┘
+```bash
+make
 ```
 
-## Kernel Components
-
-### Bootloader (_start)
-- Loads at 0x00010000
-- Stack setup (ESP → stack_top, 16 KB kernel stack)
-- Calls kernel_main
-
-### IDT & PIC (Interrupt Handling)
-- **IDT**: 256-entry interrupt descriptor table
-- **PIC**: Master/Slave programmable interrupt controller
-  - Maps IRQ0-7 -- INT 0x20-0x27
-  - Maps IRQ8-15 -- INT 0x28-0x2F
-  - IRQ1 (keyboard) enabled by default
-
-### VGA Driver
-- `vga_clear()` - Clear screen, reset cursor
-- `vga_putchar(AL)` - Write char at cursor, advance, wrap, scroll
-- `vga_write(ESI)` - Write null-terminated string
-- Text mode: 80×25x2 @ 0xB8000
-
-### Serial Driver (COM1)
-- `ser_write(ESI)` - Write null-terminated string to serial port
-- Port: 0x3F8 (COM1)
-- Used for debugging output
-
-### Timer (IRQ0)
-- **Handler**: `timer_handler()` (INT 0x20/IRQ0)
-- **Counter**: `timer_ticks` - Incremented on each timer tick
-- **Reader**: `timer_get_ticks()` - Non-blocking, returns current tick count
-- **Init**: IRQ0 enabled by default, PIC configured
-
-### PS/2 Keyboard
-- **Handler**: `keyboard_handler()` (INT 0x21/IRQ1)
-- **Ring buffer**: 32 scancodes, power-of-2 wrap with AND
-- **Reader**: `keyboard_read()` - Non-blocking, returns scancode or 0
-- **Data check**: `keyboard_has_data()` - Non-blocking, returns 1 if buffer has data
-- **Status check**: Port 0x64 bit 0 before reading 0x60
-- **Init**: Disables/re-enables controller, enables IRQ1
-
-## Utility Functions
-- `hex_to_string(EAX, ESI)` - Convert 32-bit to "0xXXXXXXXX"
-- `idt_set_entry(EAX, BL, CL)` - Configure IDT entry
-- `init_idt()` - Initialize IDT, load with LIDT
-- `init_pic()` - Configure PIC for IRQ remapping
-- `init_ps2()` - Initialize PS/2 keyboard hardware
-- `pic_enable_irq(AL)` - Enable timer interrupt (clear PIC mask bit AL)
-- `timer_get_ticks()` - Read current timer tick count
-- `keyboard_read()` - Non-blocking read from keyboard buffer
-- `keyboard_has_data()` - Check if keyboard buffer has pending scancodes
-
-## FORTH System
-**Dictionary Entry Format:**
-```
-[Offset 0:3]   Link pointer to previous entry (4 bytes)
-[Offset 4:7]   Execution Token (XT) (4 bytes)
-[Offset 8]     Flags (1 byte)  
-[Offset 9]     Length (1 byte)  
-[Offset 10:n]  Name (variable length)
-[Offset n+1]   NULL (1 byte)
-[Offset n+2:m] Inline code (XT, variable size)
-```
-
-- **Data stack**: EBP (data stack pointer, grows downward from DATA_STK_TOP)
-- **Stack macros**:
-  - `dPush val` - Push a value onto the data stack
-  - `dPop reg` - Pop from data stack into a register
-  - `dDrop` - Drop the top of stack
-  - `getTOS reg` - Read top of stack (non-destructive)
-  - `getNOS reg` - Read 2nd element (non-destructive)
-  - `setTOS val` - Set top of stack
-  - `setNOS val` - Set 2nd element
+This produces `build/kernel.elf`, which is the complete kernel/OS image for this project. There is no separate `boot.bin` in this build flow.
 
 ## Running
 
-```bash
-# Build and run (serial output to terminal)
-make qemu
-
-# Or directly:
-qemu-system-i386 -kernel kernel.elf -m 32M -serial stdio
-
-# Without serial output:
-qemu-system-i386 -kernel kernel.elf -m 32M
-```
-
-## Debug Commands
+### Direct boot
 
 ```bash
-# Inspect binary
-file kernel.elf
-readelf -l kernel.elf        # Program headers
-readelf -S kernel.elf        # Section headers
-nm kernel.elf                # Symbols
-
-# Disassemble
-objdump -d kernel.elf | less
-objdump -M intel -d kernel.elf  # Intel syntax
-
-# Check multiboot magic
-objdump -s -j .multiboot kernel.elf | head -5
+make run
 ```
 
-## TODOs
+This builds the kernel and runs it in QEMU.
 
-- [x] Stack abstraction (EBP-based data stack)
-- [x] Dictionary infrastructure
-- [ ] Core primitives (in progress)
-- [x] Number parsing (numq with multiple bases)
-- [x] Dictionary lookup (case-insensitive)
-- [ ] Scancode -> ASCII conversion (raw scancodes in buffer)
-- [ ] Graphics buffer allocated but unused
-- [ ] Disk support
+### ISO boot
 
-## Architecture Notes
+```bash
+make iso
+make run-iso
+```
 
-**Why pure assembly?**
-- No dependency on a 3rd party compiler
-- Total control over memory layout and execution
-- Minimal overhead (very small kernel!)
-- Single executable file, no dependencies
-- Perfect for bare metal + FORTH experimentation
+### Debug with GDB
 
-**Register conventions:**
-- EAX, EBX, ECX, EDX: scratch
-- ESI, EDI: String pointers / scratch
-- ESP: Return stack (Forth and x86 stack calls/returns)
-- EBP: FORTH data stack pointer (grows downward, initialized to `DATA_STK_TOP`)
+```bash
+make debug
+```
 
-**Calling convention:**
-- No STDCALL (manual stack management)
-- Return/Exit via RET (Subroutine threading)
+Then in another terminal:
 
-## Tools Used
+```bash
+gdb build/kernel.elf
+(gdb) target remote :1234
+(gdb) continue
+```
 
-- **FASM** (v1.73.30) - Compact, elegant, open-source assembler
-- **GNU ld** - Linker with custom script
-- **QEMU** - Machine emulator (i386 mode)
-- **readelf/objdump** - ELF inspection
+## Project structure
+
+### kernel.c
+
+The kernel implements:
+
+- **Multiboot header**
+- **GDT / IDT initialization**
+- **PIC setup**
+- **Keyboard interrupt processing**
+- **PIT timer tick counting**
+- **Serial I/O**
+- **VGA text-mode console**
+- **kernel_main()** entry point
+
+### dwc-vm.c and dwc-vm.h
+
+This is the Forth-like VM used by the project. It includes:
+
+- a dictionary and primitive table
+- stack operations and compiled words
+- VM entry points like `outer()`, `inner()`, and `dwcInit()`
+- primitive hooks for `emit`, `ztype`, `key`, `key?`, and `timer`
+
+### os.c
+
+This file provides the minimal runtime glue needed for a freestanding build, including:
+
+- libc-like string/memory helpers
+- keyboard and timer wrappers used by the VM
+- stubbed `emit` / `ztype` output support
+
+### linker.ld
+
+Defines the memory layout:
+
+- code starts at `0x100000` (1 MB)
+- a flat single-segment kernel image is used
+
+## Important notes
+
+- **No full standard library**: the kernel is built with `-ffreestanding`
+- **No dynamic memory**: the project is still intentionally minimal
+- **Interrupts are active**: GDT/IDT, keyboard, and timer are implemented
+- **Timer rate**: the PIT is configured for 50 Hz, so `system_ticks` advances at roughly 20 ms per tick
+- **The VM is linked into the kernel**: the build includes [dwc-vm.c](dwc-vm.c)
+
+## Troubleshooting
+
+### QEMU shows nothing
+
+- ensure QEMU is installed
+- check that VGA and serial output are enabled
+- run `make run` for the direct boot path
+
+### Compiler errors about stdint.h
+
+- install 32-bit development headers:
+
+```bash
+sudo apt-get install gcc-multilib
+```
+
+### `grub-mkrescue: command not found`
+
+- install GRUB tools:
+
+```bash
+sudo apt-get install grub-pc-bin xorriso
+```
+
+### QEMU hangs after boot
+
+- this may happen if the kernel is waiting for input or interrupts are not configured properly
+- use `Ctrl+A` then `X` to exit QEMU
 
 ## References
 
-- [OSDev.org Wiki](https://wiki.osdev.org/)
 - [Multiboot Specification](https://www.gnu.org/software/grub/manual/multiboot/)
-- [x86 Instruction Set Reference](https://www.felixcloutier.com/x86/)
-- [FASM Documentation](https://flatassembler.net/)
-- [FORTH Standards](https://forth-standard.org/)
+- [OSDev Wiki](https://wiki.osdev.org/)
+- [x86 I/O Ports](https://wiki.osdev.org/I/O_Ports)
+- [VGA Text Mode](https://wiki.osdev.org/Text_mode)
 
 ## License
 
-MIT License
+Public Domain - use freely for educational purposes.

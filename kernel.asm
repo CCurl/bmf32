@@ -183,6 +183,35 @@ scroll_screen:
     pop eax
     ret
 
+; Update the hardware VGA cursor to match cursor_x/cursor_y
+vga_update_cursor:
+    push eax
+    push ebx
+    push edx
+
+    mov ebx, [cursor_y]
+    imul ebx, VGA_WIDTH
+    add ebx, [cursor_x]
+
+    mov dx, 0x3D4
+    mov al, 0x0F
+    out dx, al
+    inc dx
+    mov al, bl
+    out dx, al
+
+    dec dx
+    mov al, 0x0E
+    out dx, al
+    inc dx
+    mov al, bh
+    out dx, al
+
+    pop edx
+    pop ebx
+    pop eax
+    ret
+
 ; Write single character to VGA at cursor position
 ; Entry: AL = character
 ; Exit: cursor advanced, wraps to next line
@@ -209,27 +238,31 @@ vga_emit:
     ; Advance cursor
     inc dword [cursor_x]
     cmp dword [cursor_x], VGA_WIDTH
-    jl .putchar_done
+    jl .update_cursor
     
     mov dword [cursor_x], 0
     inc dword [cursor_y]
     cmp dword [cursor_y], VGA_HEIGHT
-    jl .putchar_done
+    jl .update_cursor
     
     ; Scroll screen up
     call scroll_screen
     mov dword [cursor_y], VGA_HEIGHT - 1  ; Move cursor to last row after scroll
+    jmp .update_cursor
     
 .putchar_newline:
     mov dword [cursor_x], 0
     inc dword [cursor_y]
     cmp dword [cursor_y], VGA_HEIGHT
-    jl .putchar_done
+    jl .update_cursor
     
     ; Scroll screen up
     call scroll_screen
     mov dword [cursor_y], VGA_HEIGHT - 1  ; Move cursor to last row after scroll
     
+.update_cursor:
+    call vga_update_cursor
+
 .putchar_done:
     pop edx
     pop ecx
@@ -406,6 +439,22 @@ idt_set_entry:
     pop eax
     ret
 
+; Initialize the PIT (Programmable Interval Timer) for 50 Hz (20 ms period)
+; PIT clock is 1,193,180 Hz => divisor ~= 1193180 / 50 = 23863.6 => use 23864
+init_pit_50hz:
+    push eax
+
+    mov al, 0x34            ; Channel 0, lo/hi byte access, mode 2 (rate generator)
+    out 0x43, al            ; PIT command register
+
+    mov ax, 23864           ; 1,193,180 / 50 ~= 23864
+    out 0x40, al            ; low byte
+    mov al, ah
+    out 0x40, al            ; high byte
+
+    pop eax
+    ret
+
 ; Initialize the PIC (Programmable Interrupt Controller)
 ; Remaps IRQ0-7 to INT 0x20-0x27, IRQ8-15 to INT 0x28-0x2F
 init_pic:
@@ -498,7 +547,7 @@ timer_handler:
     push eax
     
     ; Increment timer counter
-    inc dword [timer_ticks]
+    add dword [timer_ticks], 20
     
     ; Send EOI (End Of Interrupt) to master PIC
     mov al, PIC_EOI
@@ -634,6 +683,7 @@ include 'forth.inc'
 kernel_main:
     call init_idt            ; Initialize interrupt system
     call init_pic            ; Initialize PIC
+    call init_pit_50hz       ; Set PIT to 50 Hz (20 ms tick)
     call init_ps2            ; Initialize PS/2 keyboard hardware
     
     mov al, 0x01             ; Enable IRQ0 (timer) - bit 0

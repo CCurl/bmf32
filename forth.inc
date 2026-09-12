@@ -2,19 +2,18 @@
 ; This Forth system is subroutine threaded
 ; ============================================================================
 
-; Notes: ESI is the Inner Instruction Pointer (IP)
-;      - EAX is the Top Of Stack (TOS)
+; Notes: ESI is the Inner Instruction Pointer (IIP)
+;      - EDI is the Top Of Stack (TOS)
 ;      - EBP is the data stack pointer (grows downward)
 ;      - ESP is the return stack pointer (grows downward)
 
 CELL_SZ equ 4
-TOS equ EAX     ; Top of stack
+TOS equ EDI     ; Top of stack
 NOS equ [EBP]   ; Next on stack
-IIP equ ESI     ; ???
+R0  equ EAX     ; General purpose register 0
 R1  equ EBX     ; General purpose register 1
 R2  equ ECX     ; General purpose register 2
 R3  equ EDX     ; General purpose register 3
-R4  equ EDI     ; General purpose register 4
 
 ; ============================================================================
 macro getTOS regVal { mov regVal, TOS }
@@ -22,7 +21,7 @@ macro setTOS regVal { mov TOS, regVal }
 macro getNOS regVal { mov regVal, NOS }
 macro setNOS regVal { mov NOS, regVal }
 macro dDrop { call fDrop }
-macro NEXT { ret }
+macro NEXT { jmp inner }
 
 macro mDup {
     lea ebp, [ebp - CELL_SZ]
@@ -60,41 +59,115 @@ xt##nameId:
 ; Forth initialize and run
 ; ============================================================================
 run_forth:
-    call pMain
-    jmp run_forth
+    cld
+    mov ebp, DATA_STK_TOP
+    mov esi, theRom
+    jmp inner
 
-pMain:
-    mov R1, xtDup
-    call doExec
-    mov esi, ok1
-    call vga_write
-    mov R1, xtDrop
-    call doExec
-    mov esi, ok2
-    call ser_write
+; ============================================================================
+doCall:
+    push esi
+    mov esi, eax
+inner:
+    lodsd
+    cmp eax, primsEnd
+    jae doCall
+    jmp eax
+
+; ============================================================================
+dictEntry Exec, "EXECUTE", 3, 0
+    mPop esi
+    NEXT
+
+dictEntry Exit, "EXIT", 4, 0
+    pop esi
+    test esi, esi
+    jz .done
+    NEXT
+.done:
     ret
 
-dictEntry Exec, "EXECUTE", 3, 0
-    mPop R1
-doExec:
-    jmp R1
+dictEntry Lit, "LIT", 3, 0
+    lodsd
+    mPush eax
+    NEXT
+
+dictEntry Jmp, "JMP", 3, 0
+    lodsd
+doJmp:
+    mov esi, eax
+    NEXT
+
+dictEntry JmpZ, "JMPZ", 4, 0
+    lodsd
+    mPop R2
+    test R2, R2
+    je doJmp
+    NEXT
+
+dictEntry JmpNZ, "JMPNZ", 5, 0
+    lodsd
+    mPop R2
+    test R2, R2
+    jne doJmp
+    NEXT
+
+dictEntry NJmpZ, "NJMPZ", 5, 0
+    lodsd
+    test TOS, TOS
+    je doJmp
+    NEXT
+
+dictEntry NJmpNZ, "NJMPNZ", 6, 0
+    lodsd
+    test TOS, TOS
+    jne doJmp
+    NEXT
+
+dictEntry Emit, "EMIT", 4, 0
+    mPop EAX
+    call vga_ser_emit
+    NEXT
 
 dictEntry Dup, "DUP", 3, 0
     mDup
-    ret
+    NEXT
 
 dictEntry Drop, "DROP", 4, 0
     mDrop
-    ret
+    NEXT
 
 dictEntry Swap, "SWAP", 4, 0
     mov R1, TOS
     mov TOS, NOS
     mov NOS, R1
-    ret
+    NEXT
 
-ok1: db "O", 0
-ok2: db "K", 0
+dictEntry Over, "OVER", 4, 0
+    mov R1, NOS
+    mPush R1
+    NEXT
+
+dictEntry Dec, "DEC", 3, 0
+    dec TOS
+    NEXT
+
+dictEntry Inc, "INC", 3, 0
+    inc TOS
+    NEXT
+
+primsEnd:
+; ============================================================================
+
+dictEntry Space, "SPACE", 5, 0
+    dd xtLit, 32, xtEmit, xtExit
+
+dictEntry OK, "OK", 2, 0
+    dd xtSpace, xtLit, 'O', xtEmit, xtLit, 'K', xtEmit
+    dd xtExit, xtLit, 10, xtEmit, xtExit
 
 theRom:
-    ; dd xtDup, xtDrop, xtExit
+     dd xtLit, 'X', xtLit, 'Y', xtSwap, xtEmit, xtEmit, xtOK
+     dd xtLit, 2000000
+.L1: dd xtDec, xtNJmpNZ, .L1
+     dd xtDrop, xtJmp, theRom

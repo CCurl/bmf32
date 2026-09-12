@@ -56,14 +56,7 @@ xt##nameId:
 }
 
 ; ============================================================================
-; Forth initialize and run
-; ============================================================================
-run_forth:
-    cld
-    mov ebp, DATA_STK_TOP
-    mov esi, theRom
-    jmp inner
-
+; Forth inner loop and primitives
 ; ============================================================================
 doCall:
     push esi
@@ -75,10 +68,6 @@ inner:
     jmp eax
 
 ; ============================================================================
-dictEntry Exec, "EXECUTE", 3, 0
-    mPop esi
-    NEXT
-
 dictEntry Exit, "EXIT", 4, 0
     pop esi
     test esi, esi
@@ -156,18 +145,76 @@ dictEntry Inc, "INC", 3, 0
     inc TOS
     NEXT
 
+dictEntry IsNum, "NUMBER?", 7, 0
+    push esi
+    mPop esi
+    call numq
+    test ebx, ebx
+    jz .notNum
+    mPush ecx
+.notNum:
+    mPush ebx
+    pop esi
+    NEXT
+
+dictEntry Dot10, ".10", 3, 0
+    mPop eax
+    call dot10
+    mov eax, 32
+    call vga_ser_emit
+    NEXT
+
 primsEnd:
 ; ============================================================================
 
 dictEntry Space, "SPACE", 5, 0
     dd xtLit, 32, xtEmit, xtExit
 
+dictEntry CR, "CR", 2, 0
+    dd xtLit, 10, xtEmit, xtExit
+
 dictEntry OK, "OK", 2, 0
     dd xtSpace, xtLit, 'O', xtEmit, xtLit, 'K', xtEmit
-    dd xtExit, xtLit, 10, xtEmit, xtExit
+    dd xtLit, 10, xtEmit, xtExit
 
+LAST: dd 0
+dictEntry Last, "LAST", 4, 0
+    dd xtLit, LAST, xtExit
+
+HERE: dd 0
+dictEntry Here, "HERE", 4, 0
+    dd xtLit, HERE, xtExit
+
+BASE: dd 0
+dictEntry Base, "BASE", 4, 0
+    dd xtLit, BASE, xtExit
+
+STATE: dd 0
+dictEntry State, "STATE", 5, 0
+    dd xtLit, STATE, xtExit
+
+dictEntry Wd, "WORD", 4, 0
+    dd xtLit, WORD_START, xtExit
+
+dictEntry Outer, "OUTER", 5, 0
+    dd xtLit, 12345, xtDot10
+    dd xtLit, TestN1, xtIsNum, xtDot10, xtDot10
+    dd xtLit, TestN2, xtIsNum, xtDot10
+    dd xtOK, xtExit
+TestN1: db "223344", 0
+TestN2: db "223abc", 0
+; ============================================================================
 theRom:
-     dd xtLit, 'X', xtLit, 'Y', xtSwap, xtEmit, xtEmit, xtOK
-     dd xtLit, 2000000
+     dd xtOuter, xtLit, 10000000
 .L1: dd xtDec, xtNJmpNZ, .L1
      dd xtDrop, xtJmp, theRom
+
+; ============================================================================
+run_forth:
+    cld
+    mov DWORD [LAST], last_de
+    mov DWORD [HERE], DICT_START
+    mov ebp, DATA_STK_TOP
+    mov esi, theRom
+    push DWORD 0
+    jmp inner

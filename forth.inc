@@ -1,5 +1,5 @@
 ; ============================================================================
-; This Forth system is subroutine threaded
+; This Forth system is inspired by Tachyon
 ; ============================================================================
 
 ; Notes: ESI is the Inner Instruction Pointer (IIP)

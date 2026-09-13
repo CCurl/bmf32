@@ -66,6 +66,8 @@ cursor_y: dd 0
 multiboot_magic: dd 0
 multiboot_info: dd 0
 
+disk_test_buf: rb 512
+
 ; Keyboard ring buffer (32 scancodes)
 KEYBOARD_BUFFER_SIZE = 32       ; must be a power of 2 for wrapping
 keyboard_buffer: rb KEYBOARD_BUFFER_SIZE
@@ -369,6 +371,254 @@ vga_ser_write:
 vga_ser_emit:
     call vga_emit
     call ser_emit
+    ret
+
+; Simple ATA disk smoke test: read sector 0 into a buffer and report status.
+disk_read_test:
+    push eax
+    push ecx
+    push esi
+    push edx
+
+    ; Select the master drive before checking status.
+    call ata_select_master
+
+    ; Let the drive settle after selecting it.
+    mov ecx, 4
+.delay_loop:
+    mov dx, ATA_STATUS
+    in al, dx
+    dec ecx
+    jnz .delay_loop
+
+    mov dx, ATA_STATUS
+    in al, dx
+    test al, al
+    jz .no_disk
+    cmp al, 0xFF
+    je .no_disk
+
+    mov eax, 0
+    mov esi, disk_test_buf
+    call ata_read_sector
+    jc .read_error
+
+    mov esi, msg_disk_ok
+    call vga_ser_write
+    jmp .done
+
+.no_disk:
+    mov esi, msg_disk_none
+    call vga_ser_write
+    jmp .done
+
+.read_error:
+    mov esi, msg_disk_error
+    call vga_ser_write
+
+.done:
+    pop edx
+    pop esi
+    pop ecx
+    pop eax
+    ret
+
+; ==========================================================================
+; SECTION: ATA/IDE PIO DISK SUPPORT (BASIC)
+; ==========================================================================
+
+; ATA registers
+ATA_DATA      = 0x1F0
+ATA_ERROR     = 0x1F1
+ATA_SECCOUNT  = 0x1F2
+ATA_LBA_LO    = 0x1F3
+ATA_LBA_MID   = 0x1F4
+ATA_LBA_HI    = 0x1F5
+ATA_DRIVE     = 0x1F6
+ATA_STATUS    = 0x1F7
+ATA_COMMAND   = 0x1F7
+
+ATA_CMD_READ  = 0x20
+ATA_CMD_WRITE = 0x30
+
+; Select the IDE master drive.
+ata_select_master:
+    push eax
+    push edx
+
+    mov dx, ATA_DRIVE
+    mov al, 0xA0
+    out dx, al
+
+    pop edx
+    pop eax
+    ret
+
+; Wait until the ATA controller is no longer busy.
+ata_wait_busy:
+    push eax
+    push edx
+
+.ata_wait_busy_loop:
+    mov dx, ATA_STATUS
+    in al, dx
+    test al, 0x80
+    jnz .ata_wait_busy_loop
+
+    pop edx
+    pop eax
+    ret
+
+; Wait until the ATA controller has data ready for transfer.
+ata_wait_drq:
+    push eax
+    push edx
+
+.ata_wait_drq_loop:
+    mov dx, ATA_STATUS
+    in al, dx
+    test al, 0x08
+    jz .ata_wait_drq_loop
+
+    pop edx
+    pop eax
+    ret
+
+; Basic IDE/ATA PIO read of one 512-byte sector.
+; Entry: EAX = LBA sector number, ESI = destination buffer
+; Exit: Carry clear on success, Carry set on error.
+ata_read_sector:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push edi
+
+    ; Save the LBA value; 28-bit LBA accepted.
+    mov ebx, eax
+
+    ; Set drive/head register for LBA mode.
+    call ata_select_master
+    mov dx, ATA_DRIVE
+    mov al, 0xE0
+    or al, bh
+    and al, 0xEF
+    out dx, al
+
+    ; Sector count = 1
+    mov dx, ATA_SECCOUNT
+    mov al, 1
+    out dx, al
+
+    ; LBA bits 0-7
+    mov dx, ATA_LBA_LO
+    mov eax, ebx
+    out dx, al
+
+    ; LBA bits 8-15
+    mov dx, ATA_LBA_MID
+    mov eax, ebx
+    shr eax, 8
+    out dx, al
+
+    ; LBA bits 16-23
+    mov dx, ATA_LBA_HI
+    mov eax, ebx
+    shr eax, 16
+    out dx, al
+
+    ; Command: READ SECTORS
+    mov dx, ATA_COMMAND
+    mov al, ATA_CMD_READ
+    out dx, al
+
+    call ata_wait_busy
+    call ata_wait_drq
+
+    ; Transfer 256 words from data port to memory.
+    mov dx, ATA_DATA
+    mov edi, esi
+    cld
+    mov ecx, 256
+    rep insw
+
+    ; Clear carry for success.
+    clc
+
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+; Basic IDE/ATA PIO write of one 512-byte sector.
+; Entry: EAX = LBA sector number, ESI = source buffer
+; Exit: Carry clear on success, Carry set on error.
+ata_write_sector:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+
+    mov ebx, eax
+
+    ; Set drive/head register for LBA mode.
+    call ata_select_master
+    mov dx, ATA_DRIVE
+    mov al, 0xE0
+    or al, bh
+    and al, 0xEF
+    out dx, al
+
+    ; Sector count = 1
+    mov dx, ATA_SECCOUNT
+    mov al, 1
+    out dx, al
+
+    ; LBA bits 0-7
+    mov dx, ATA_LBA_LO
+    mov eax, ebx
+    out dx, al
+
+    ; LBA bits 8-15
+    mov dx, ATA_LBA_MID
+    mov eax, ebx
+    shr eax, 8
+    out dx, al
+
+    ; LBA bits 16-23
+    mov dx, ATA_LBA_HI
+    mov eax, ebx
+    shr eax, 16
+    out dx, al
+
+    ; Command: WRITE SECTORS
+    mov dx, ATA_COMMAND
+    mov al, ATA_CMD_WRITE
+    out dx, al
+
+    call ata_wait_busy
+    call ata_wait_drq
+
+    ; Transfer 256 words from memory to data port.
+    mov dx, ATA_DATA
+    mov ecx, 256
+    cld
+    rep outsw
+
+    ; Flush write by reading status.
+    mov dx, ATA_STATUS
+    in al, dx
+
+    clc
+
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 ; ============================================================================
@@ -685,7 +935,7 @@ kernel_main:
     call init_pic            ; Initialize PIC
     call init_pit_50hz       ; Set PIT to 50 Hz (20 ms tick)
     call init_ps2            ; Initialize PS/2 keyboard hardware
-    
+
     mov al, 0x01             ; Enable IRQ0 (timer) - bit 0
     call pic_enable_irq
     
@@ -701,6 +951,9 @@ kernel_main:
     mov esi, msg_started
     call vga_ser_write       ; Print "Kernel started!" to VGA and serial
 
+    ; Minimal raw-disk smoke test: sector 0 read if an IDE disk is present
+    call disk_read_test
+    
     call run_forth           ; Run the Forth system
 
     ; Halt the CPU
@@ -716,4 +969,7 @@ kernel_main:
 ; ============================================================================
 
 msg_started: db "BMF32 - version 0.0.2", 10, 0
+msg_disk_ok: db "Disk read OK", 10, 0
+msg_disk_none: db "No IDE disk detected", 10, 0
+msg_disk_error: db "Disk read failed", 10, 0
 msg_halt: db 10, "Halting.", 10, 0

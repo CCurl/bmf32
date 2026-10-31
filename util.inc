@@ -90,13 +90,12 @@ hex_to_string:
     ret
 
 ; ============================================================================
-; numq - Check if string is a number and convert to integer
+; numq - Convert a string to a number (base 10 only)
 ; Entry: ESI = pointer to string
-; Exit: EBX = 1 if valid number, 0 if not
+; Exit: EBX = 1 if valid, 0 if not
 ;       ECX = accumulated number (if valid)
 numq:
     push edx
-    
     xor edx, edx            ; Clear negative flag
     xor ecx, ecx            ; Clear accumulated number
     mov bl, [esi]
@@ -106,7 +105,7 @@ numq:
 .numq_check_minus:
     cmp bl, '-'
     jne .numq_loop
-    mov edx, 1              ; Set negative flag
+    inc edx                 ; Set negative flag
     inc esi
     ; Check if string is empty after prefix/minus
     mov bl, [esi]
@@ -117,22 +116,16 @@ numq:
     mov bl, [esi]
     test bl, bl
     jz .numq_done
-    
-.numq_char_ok:
-    ; Convert char to digit value (0-9 or 10-15 for a-f)
-    ; Try 0-9
     cmp bl, '0'
     jl .numq_fail
     cmp bl, '9'
     jg .numq_fail
-    
     sub bl, '0'
     movzx ebx, bl
     
     ; Accumulate: n = n*base + digit
     imul ecx, ecx, 10       ; ECX = ECX * 10
     add ecx, ebx            ; ECX = ECX + digit
-    
     inc esi
     jmp .numq_loop
     
@@ -155,37 +148,42 @@ numq:
     ret
 
 ; ******************************************************************************
-; iToA: input:  EAX: the number to print
-;       input:  EBX: the base to convert to (2, 10, 16)
-;       output: EDI: the start of the string
-;               ECX: the length of the string
-i2aBuf: db 64 dup(0)
-iToA:   push    eax             ; save EAX
-        mov     edi, i2aBuf+63  ; output string start
+; dot10: input:  EAX: the number to print in base 10
+;        output: none (prints to VGA serial)
+dotBuf: db 64 dup(0)
+dot10:  push    eax             ; save EAX
+        push    ebx
+        push    ecx
+        push    edx
+        push    edi
+        push    esi
+        mov     edi, dotBuf+63  ; output string start
         xor     ecx, ecx        ; output length
-        xor     edx, edx        ; isNegative flag
+        push    ecx             ; save isNegative flag
+        mov     ebx, 10         ; base for division
         mov     BYTE [edi], 0   ; NULL terminate the string
         bt      eax, 31
-        jnc     .L0
-        mov     edx, 1             ; set isNegative flag
+        jnc     .loop
+        inc     BYTE [esp]      ; set isNegative flag
         neg     eax
-.L0:    push    edx
 .loop:  cdq
-        div     ebx
-        add     dl, '0'
-        cmp     dl, '9'
-        jle     .L1
-        add     dl, 7
-.L1:    dec     edi
+        div     ebx             ; EAX gets quotient
+        add     dl, '0'         ; EDX gets remainder
+        dec     edi
         mov     BYTE [edi], dl
-        inc     ecx
         test    eax, eax
         jnz     .loop
-        pop     edx             ; get the negative flag
-        test    edx, edx        ; 0 means not negative
+        pop     eax
+        test    eax, eax        ; 0 means not negative
         jz      .xit
         dec     edi
         mov     BYTE [edi], '-'
-        inc     ecx
-.xit:   pop     eax             ; restore original EAX
+.xit:   mov     esi, edi
+        call    vga_ser_write
+        pop     esi
+        pop     edi
+        pop     edx
+        pop     ecx
+        pop     ebx
+        pop     eax
         ret
